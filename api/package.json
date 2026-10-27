@@ -10,8 +10,10 @@
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "express": "^4.21.2",
+    "google-auth-library": "^9.15.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "web-push": "^3.6.7"
   }
 }

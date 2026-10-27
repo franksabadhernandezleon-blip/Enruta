@@ -14,3 +14,17 @@ export const allowedImageTypes = new Map([
   ['image/webp', 'webp'],
   ['image/gif', 'gif'],
 ]);
+
+export const adminEmails = (process.env.ADMIN_EMAIL || 'franksabadhernandezleon@gmail.com')
+  .split(',')
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
+
+// Claves VAPID: placeholders de desarrollo en .env.base44-defaults, override por dashboard.
+export const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
+export const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || '';
+export const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:admin@enruta.app';
+
+export const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
+
+export const MAX_WEIGHT_FALLBACK_KG = 20;

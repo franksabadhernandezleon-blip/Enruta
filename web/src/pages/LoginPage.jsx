@@ -1,49 +1,101 @@
-import { useState } from 'react';
-import { Bike, ArrowRight, Loader2, Store } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowRight, Bike, ShieldCheck } from 'lucide-react';
+import { Alert, Field, Spinner, Tabs } from '../components/ui.jsx';
 import { useAuth } from '../lib/auth.jsx';
+import { useConfig } from '../lib/config.jsx';
 
-const DEMO = { email: 'dueno@enruta.com', password: 'enruta123' };
+const DEMO = [
+  { label: 'Admin', email: 'franksabadhernandezleon@gmail.com' },
+  { label: 'Dueño', email: 'dueno@enruta.com' },
+  { label: 'Motorizado', email: 'motorizado@enruta.com' },
+  { label: 'Cliente', email: 'cliente@enruta.com' },
+];
+
+let gisPromise = null;
+const loadGis = () => {
+  if (gisPromise) return gisPromise;
+  gisPromise = new Promise((resolve, reject) => {
+    if (window.google?.accounts?.id) {
+      resolve(window.google.accounts.id);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => resolve(window.google.accounts.id);
+    script.onerror = () => reject(new Error('No pudimos cargar el acceso de Google.'));
+    document.head.appendChild(script);
+  });
+  return gisPromise;
+};
 
 export default function LoginPage() {
-  const { login, register } = useAuth();
+  const { login, register, loginWithGoogle, user, isAdmin, isOwner, isCourier } = useAuth();
+  const { googleClientId } = useConfig();
+  const navigate = useNavigate();
+  const buttonRef = useRef(null);
+
   const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({
-    email: '',
-    password: '',
-    ownerName: '',
-    storeName: '',
-  });
+  const [form, setForm] = useState({ email: '', password: '', name: '', phone: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [googleMessage, setGoogleMessage] = useState('');
 
-  const update = (field) => (event) => setForm((prev) => ({ ...prev, [field]: event.target.value }));
+  useEffect(() => {
+    if (!user) return;
+    if (isAdmin) navigate('/tuteteno');
+    else if (isOwner) navigate('/mitienda');
+    else if (isCourier) navigate('/repartidor');
+    else navigate('/');
+  }, [user, isAdmin, isOwner, isCourier, navigate]);
 
-  const switchMode = (next) => {
-    setMode(next);
-    setError('');
-  };
+  useEffect(() => {
+    if (!googleClientId || !buttonRef.current) return;
+    let cancelled = false;
 
-  const useDemo = () => {
-    setMode('login');
-    setError('');
-    setForm((prev) => ({ ...prev, ...DEMO }));
-  };
+    loadGis()
+      .then((id) => {
+        if (cancelled) return;
+        id.initialize({
+          client_id: googleClientId,
+          callback: async (response) => {
+            setError('');
+            try {
+              await loginWithGoogle(response.credential);
+            } catch (requestError) {
+              setError(requestError.message);
+            }
+          },
+        });
+        id.renderButton(buttonRef.current, {
+          theme: 'outline',
+          size: 'large',
+          width: 280,
+          text: 'continue_with',
+          locale: 'es',
+        });
+      })
+      .catch((loadError) => setGoogleMessage(loadError.message));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [googleClientId, loginWithGoogle]);
 
   const submit = async (event) => {
     event.preventDefault();
     setBusy(true);
     setError('');
     try {
-      if (mode === 'login') {
-        await login({ email: form.email.trim(), password: form.password });
-      } else {
+      if (mode === 'login') await login({ email: form.email.trim(), password: form.password });
+      else
         await register({
           email: form.email.trim(),
           password: form.password,
-          ownerName: form.ownerName.trim(),
-          storeName: form.storeName.trim(),
+          name: form.name.trim(),
+          phone: form.phone.trim(),
         });
-      }
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -54,144 +106,121 @@ export default function LoginPage() {
   return (
     <div className="auth-shell">
       <section className="auth-story">
-        <div className="brand">
-          <span className="brand-icon">
+        <div className="brand is-light">
+          <span className="brand-logo">
             <Bike size={20} aria-hidden="true" />
           </span>
-          <span className="brand-name">ENRUTA</span>
+          <span className="brand-text">
+            <strong>ENRUTA</strong>
+            <small>Caripito</small>
+          </span>
         </div>
 
         <div className="auth-story-body">
-          <p className="eyebrow">Panel de tienda</p>
-          <h1>Tu catálogo, siempre al día.</h1>
+          <p className="eyebrow">Delivery multi-tienda</p>
+          <h1>Una sola ruta para todo Caripito.</h1>
           <p className="auth-story-lede">
-            Sube las fotos de tus productos desde el panel y tus clientes verán el catálogo
-            actualizado al instante.
+            Pide en varias tiendas, sigue el pedido en tiempo real y paga en bolívares con la tasa del día
+            congelada en tu recibo.
           </p>
           <ul className="auth-points">
-            <li>
-              <span className="dot" aria-hidden="true" />
-              Arrastra una foto y listo, sin salir del panel.
-            </li>
-            <li>
-              <span className="dot" aria-hidden="true" />
-              JPG, PNG, WEBP o GIF de hasta 5 MB.
-            </li>
-            <li>
-              <span className="dot" aria-hidden="true" />
-              Solo tú puedes editar el catálogo de tu tienda.
-            </li>
+            <li>Tasa BCV congelada por pedido</li>
+            <li>Motorizado con PIN de retiro y código de entrega</li>
+            <li>Pago móvil, transferencia y Binance</li>
           </ul>
         </div>
 
-        <p className="auth-story-foot">Delivery para tiendas locales</p>
+        <p className="auth-story-foot">Panel admin · Dueños · Motorizados</p>
       </section>
 
       <section className="auth-panel">
         <div className="auth-card">
-          <div className="tabs" role="tablist" aria-label="Acceso a ENRUTA">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'login'}
-              className={`tab${mode === 'login' ? ' is-active' : ''}`}
-              onClick={() => switchMode('login')}
-            >
-              Ingresar
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'register'}
-              className={`tab${mode === 'register' ? ' is-active' : ''}`}
-              onClick={() => switchMode('register')}
-            >
-              Crear tienda
-            </button>
-          </div>
+          <Tabs
+            tabs={[
+              { id: 'login', label: 'Entrar' },
+              { id: 'register', label: 'Crear cuenta' },
+            ]}
+            active={mode}
+            onChange={(next) => {
+              setMode(next);
+              setError('');
+            }}
+          />
 
           <form className="auth-form" onSubmit={submit}>
             {mode === 'register' && (
               <>
-                <label className="field">
-                  <span>Tu nombre</span>
-                  <input
-                    value={form.ownerName}
-                    onChange={update('ownerName')}
-                    placeholder="Rosa Delgado"
-                    autoComplete="name"
-                  />
-                </label>
-                <label className="field">
-                  <span>Nombre de tu tienda</span>
-                  <input
-                    value={form.storeName}
-                    onChange={update('storeName')}
-                    placeholder="Pizzería El Rincón"
-                    autoComplete="organization"
-                    required
-                  />
-                </label>
+                <Field label="Tu nombre">
+                  <input value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="Ana Pérez" />
+                </Field>
+                <Field label="Teléfono / WhatsApp">
+                  <input value={form.phone} onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))} placeholder="0412-1590242" />
+                </Field>
               </>
             )}
 
-            <label className="field">
-              <span>Correo</span>
+            <Field label="Correo">
               <input
                 type="email"
                 value={form.email}
-                onChange={update('email')}
-                placeholder="dueno@enruta.com"
+                onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
+                placeholder="tucorreo@gmail.com"
                 autoComplete="email"
                 required
               />
-            </label>
-
-            <label className="field">
-              <span>Contraseña</span>
+            </Field>
+            <Field label="Contraseña">
               <input
                 type="password"
                 value={form.password}
-                onChange={update('password')}
+                onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
                 placeholder="••••••••"
                 autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 minLength={mode === 'register' ? 8 : undefined}
                 required
               />
-            </label>
+            </Field>
 
-            {error && (
-              <p className="form-error" role="alert">
-                {error}
-              </p>
-            )}
+            <Alert>{error}</Alert>
 
             <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
-              {busy ? (
-                <>
-                  <Loader2 size={16} className="spin" aria-hidden="true" />
-                  Procesando…
-                </>
-              ) : (
-                <>
-                  {mode === 'login' ? 'Entrar al panel' : 'Crear mi tienda'}
-                  <ArrowRight size={16} aria-hidden="true" />
-                </>
-              )}
+              {busy ? <Spinner /> : <ShieldCheck size={16} aria-hidden="true" />}
+              {mode === 'login' ? 'Entrar a ENRUTA' : 'Crear mi cuenta'}
+              <ArrowRight size={15} aria-hidden="true" />
             </button>
           </form>
 
+          <div className="google-block">
+            {googleClientId ? (
+              <div ref={buttonRef} />
+            ) : (
+              <p className="muted small">
+                El acceso con Google se activa cuando se configura <code>GOOGLE_CLIENT_ID</code> en los secretos de
+                la app.
+              </p>
+            )}
+            {googleMessage && <Alert tone="warn">{googleMessage}</Alert>}
+          </div>
+
           <div className="demo-card">
-            <div className="demo-card-head">
-              <Store size={16} aria-hidden="true" />
-              <span>Cuenta de demostración</span>
-            </div>
-            <p>
-              <code>{DEMO.email}</code> · <code>{DEMO.password}</code>
-            </p>
-            <button type="button" className="btn btn-ghost btn-block" onClick={useDemo}>
-              Usar cuenta demo
-            </button>
+            <strong>Cuentas de la demo</strong>
+            <p className="muted small">Contraseña para todas: enruta123</p>
+            <ul>
+              {DEMO.map((account) => (
+                <li key={account.email}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm btn-block"
+                    onClick={() => setForm((prev) => ({ ...prev, email: account.email, password: 'enruta123' }))}
+                  >
+                    {account.label} · {account.email}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <Link to="/" className="muted small">
+              Seguir como invitado →
+            </Link>
           </div>
         </div>
       </section>

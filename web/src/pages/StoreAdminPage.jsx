@@ -1,0 +1,431 @@
+import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { BellRing, MapPin, Plus, Save, Store as StoreIcon, Trash2, Volume2 } from 'lucide-react';
+import MapPicker from '../components/MapPicker.jsx';
+import PhotoInput from '../components/PhotoInput.jsx';
+import { Alert, Field, Modal, Section, Spinner, StatusPill, Toggle } from '../components/ui.jsx';
+import { api } from '../lib/api.js';
+import { useAuth } from '../lib/auth.jsx';
+import { useConfig } from '../lib/config.jsx';
+import { formatDate, formatUsd, statusLabel } from '../lib/format.js';
+import { enablePush, pushSupported } from '../lib/push.js';
+
+const EMPTY_PRODUCT = {
+  name: '',
+  description: '',
+  price: '',
+  stock: '',
+  weightKg: '1',
+  imageUrl: '',
+  requiresConfirmation: false,
+  position: 1,
+};
+
+export default function StoreAdminPage() {
+  const { user, refresh } = useAuth();
+  const { vapidPublicKey } = useConfig();
+
+  const [store, setStore] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [status, setStatus] = useState('loading');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [showPin, setShowPin] = useState(false);
+  const [editor, setEditor] = useState({ open: false, product: null });
+  const [draft, setDraft] = useState(EMPTY_PRODUCT);
+  const [pins, setPins] = useState({});
+
+  const load = useCallback(async () => {
+    try {
+      const [storeData, orderData, statsData] = await Promise.all([
+        api.owner.store(),
+        api.owner.orders(),
+        api.owner.stats(),
+      ]);
+      setStore(storeData.store);
+      setProducts(storeData.products);
+      setOrders(orderData.orders);
+      setStats(statsData.stats);
+      setStatus('ready');
+    } catch (requestError) {
+      setError(requestError.message);
+      setStatus('error');
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 20000);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  const saveStore = async () => {
+    setError('');
+    setMessage('');
+    try {
+      await api.owner.updateStore({
+        name: store.name,
+        description: store.description,
+        phone: store.phone,
+        address: store.address,
+        lat: Number(store.lat),
+        lng: Number(store.lng),
+        logoUrl: store.logoUrl,
+        bannerUrl: store.bannerUrl,
+        open: store.open,
+      });
+      setShowPin(false);
+      setMessage('Tienda guardada. La ubicación quedó actualizada.');
+      await refresh();
+      await load();
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
+
+  const openEditor = (product) => {
+    setEditor({ open: true, product });
+    setDraft(
+      product
+        ? {
+            name: product.name,
+            description: product.description,
+            price: (product.priceCents / 100).toFixed(2),
+            stock: product.stock,
+            weightKg: product.weightKg,
+            imageUrl: product.imageUrl || '',
+            requiresConfirmation: product.requiresConfirmation,
+            position: product.position,
+          }
+        : EMPTY_PRODUCT,
+    );
+  };
+
+  const saveProduct = async () => {
+    setError('');
+    try {
+      const payload = {
+        name: draft.name,
+        description: draft.description,
+        price: draft.price,
+        stock: Number(draft.stock) || 0,
+        weightKg: Number(draft.weightKg) || 0,
+        imageUrl: draft.imageUrl,
+        requiresConfirmation: draft.requiresConfirmation,
+        position: Number(draft.position) || 1,
+      };
+      if (editor.product) await api.owner.updateProduct(editor.product.id, payload);
+      else await api.owner.createProduct(payload);
+      setEditor({ open: false, product: null });
+      await load();
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
+
+  const release = async (order) => {
+    setError('');
+    setMessage('');
+    try {
+      await api.owner.release(order.id, pins[order.id]);
+      setPins((prev) => ({ ...prev, [order.id]: '' }));
+      setMessage(`Parada liberada en ${order.code}.`);
+      await load();
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
+
+  const enableOwnerPush = async () => {
+    const result = await enablePush({ vapidPublicKey, role: 'owner' });
+    setMessage(result.message);
+    if (!result.ok) setError(result.message);
+  };
+
+  if (status === 'loading') {
+    return (
+      <div className="admin-shell">
+        <p className="muted pad">
+          <Spinner /> Cargando tu tienda…
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-shell">
+      <header className="admin-header">
+        <div className="brand">
+          <span className="brand-logo">
+            <StoreIcon size={20} aria-hidden="true" />
+          </span>
+          <span className="brand-text">
+            <strong>{store?.name || 'Mi tienda'}</strong>
+            <small>/mitienda · panel del dueño</small>
+          </span>
+        </div>
+        <div className="admin-header-actions">
+          <span className="muted small">{user?.email}</span>
+          {pushSupported() && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={enableOwnerPush}>
+              <BellRing size={14} aria-hidden="true" />
+              Avisos de pedidos
+            </button>
+          )}
+          <Link to={store ? `/tienda/${store.slug}` : '/'} className="btn btn-primary btn-sm">
+            Ver Catálogo
+          </Link>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+            Volver a mi Tienda
+          </button>
+        </div>
+      </header>
+
+      <main className="admin-main">
+        <Alert>{error}</Alert>
+        <Alert tone="ok">{message}</Alert>
+
+        {stats && (
+          <section className="stat-grid">
+            <div className="stat">
+              <span className="stat-value">{stats.ordersToday}</span>
+              <span className="stat-label">pedidos hoy</span>
+            </div>
+            <div className="stat">
+              <span className="stat-value">{stats.pendingStops}</span>
+              <span className="stat-label">paradas por liberar</span>
+            </div>
+            <div className="stat">
+              <span className="stat-value">{formatUsd(stats.revenueTodayCents)}</span>
+              <span className="stat-label">vendido hoy</span>
+            </div>
+            <div className="stat">
+              <span className="stat-value">{products.length}</span>
+              <span className="stat-label">productos</span>
+            </div>
+          </section>
+        )}
+
+        <div className="admin-grid">
+          <Section title="Mi tienda" subtitle="Logotipo, banner y estado Abierto/Cerrado">
+            <div className="field-row">
+              <PhotoInput label="Logotipo" shape="square" value={store?.logoUrl || ''} onChange={(url) => setStore((prev) => ({ ...prev, logoUrl: url }))} />
+              <PhotoInput label="Banner" value={store?.bannerUrl || ''} onChange={(url) => setStore((prev) => ({ ...prev, bannerUrl: url }))} />
+            </div>
+            <div className="field-row">
+              <Field label="Nombre">
+                <input value={store?.name || ''} onChange={(event) => setStore((prev) => ({ ...prev, name: event.target.value }))} />
+              </Field>
+              <Field label="Teléfono del local (privado)">
+                <input value={store?.phone || ''} onChange={(event) => setStore((prev) => ({ ...prev, phone: event.target.value }))} />
+              </Field>
+            </div>
+            <Field label="Descripción">
+              <textarea
+                value={store?.description || ''}
+                onChange={(event) => setStore((prev) => ({ ...prev, description: event.target.value }))}
+                rows={2}
+              />
+            </Field>
+            <Field label="Dirección del local (privada: solo motorizado y admin)">
+              <input value={store?.address || ''} onChange={(event) => setStore((prev) => ({ ...prev, address: event.target.value }))} />
+            </Field>
+
+            <Toggle
+              checked={Boolean(store?.open)}
+              onChange={(value) => setStore((prev) => ({ ...prev, open: value }))}
+              label={store?.open ? 'Tienda abierta' : 'Tienda cerrada'}
+              hint="Si cierras, el catálogo deja de aceptar pedidos."
+            />
+
+            <div className="pin-block">
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowPin((prev) => !prev)}>
+                <MapPin size={14} aria-hidden="true" />
+                {showPin ? 'Colapsar ubicación' : 'Ubicación en el mapa'}
+              </button>
+              {showPin && (
+                <MapPicker
+                  point={{ lat: Number(store?.lat), lng: Number(store?.lng) }}
+                  onChange={(point) => setStore((prev) => ({ ...prev, lat: point.lat, lng: point.lng }))}
+                  label="Tu tienda"
+                />
+              )}
+              <p className="muted small">
+                El pin define las distancias del delivery. Al guardar, el mapa se colapsa.
+              </p>
+            </div>
+
+            <div className="page-actions">
+              <button type="button" className="btn btn-primary" onClick={saveStore}>
+                <Save size={15} aria-hidden="true" />
+                Guardar tienda
+              </button>
+            </div>
+          </Section>
+
+          <Section
+            title="Pedidos de mi tienda"
+            subtitle="Ingresa el PIN de retiro que dicta el motorizado para liberar tu parte"
+            actions={
+              <button type="button" className="btn btn-ghost btn-sm" onClick={load}>
+                Actualizar
+              </button>
+            }
+          >
+            <ul className="admin-list">
+              {orders.map((order) => (
+                <li key={order.id} className="is-stacked">
+                  <div className="admin-row-main">
+                    <div>
+                      <strong>{order.code}</strong>
+                      <span className="muted">
+                        {formatDate(order.createdAt)} · parada {order.stop.seq} de {order.stopsCount}
+                      </span>
+                    </div>
+                    <StatusPill status={order.status} label={statusLabel[order.status]} />
+                    {order.stop.released ? (
+                      <span className="status status-delivered">Liberada</span>
+                    ) : (
+                      <div className="inline-actions">
+                        <input
+                          value={pins[order.id] || ''}
+                          onChange={(event) => setPins((prev) => ({ ...prev, [order.id]: event.target.value }))}
+                          placeholder="PIN de 4 dígitos"
+                          inputMode="numeric"
+                          aria-label={`PIN de retiro para ${order.code}`}
+                        />
+                        <button type="button" className="btn btn-primary btn-sm" onClick={() => release(order)}>
+                          <Volume2 size={14} aria-hidden="true" />
+                          Liberar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <ul className="cart-lines is-compact">
+                    {order.items.map((item) => (
+                      <li key={item.name}>
+                        <div className="cart-line-body">
+                          <strong>
+                            {item.qty}x {item.name}
+                          </strong>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+              {!orders.length && <li className="muted">Sin pedidos activos por ahora.</li>}
+            </ul>
+          </Section>
+
+          <Section
+            title="Gestión de productos"
+            subtitle="Stock, horarios por producto y foto dual"
+            actions={
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => openEditor(null)}>
+                <Plus size={14} aria-hidden="true" />
+                Nuevo producto
+              </button>
+            }
+          >
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Precio</th>
+                  <th>Stock</th>
+                  <th>Peso</th>
+                  <th>Pos.</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {products.map((product) => (
+                  <tr key={product.id}>
+                    <td data-label="Producto">
+                      <strong>{product.name}</strong>
+                      {product.requiresConfirmation && <span className="tag">Confirmar</span>}
+                    </td>
+                    <td data-label="Precio">{formatUsd(product.priceCents)}</td>
+                    <td data-label="Stock">
+                      <input
+                        defaultValue={product.stock}
+                        onBlur={(event) => api.owner.updateProduct(product.id, { stock: Number(event.target.value) }).then(load)}
+                        inputMode="numeric"
+                        aria-label={`Stock de ${product.name}`}
+                      />
+                    </td>
+                    <td data-label="Peso">{Number(product.weightKg).toFixed(1)} kg</td>
+                    <td data-label="Pos.">{product.position}</td>
+                    <td>
+                      <div className="inline-actions">
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openEditor(product)}>
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-icon btn-danger"
+                          onClick={() => api.owner.deleteProduct(product.id).then(load)}
+                          aria-label={`Eliminar ${product.name}`}
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Section>
+        </div>
+      </main>
+
+      <Modal
+        open={editor.open}
+        title={editor.product ? 'Editar producto' : 'Nuevo producto'}
+        onClose={() => setEditor({ open: false, product: null })}
+        footer={
+          <>
+            <button type="button" className="btn btn-ghost" onClick={() => setEditor({ open: false, product: null })}>
+              Cancelar
+            </button>
+            <button type="button" className="btn btn-primary" onClick={saveProduct}>
+              <Save size={15} aria-hidden="true" />
+              Guardar
+            </button>
+          </>
+        }
+      >
+        <Field label="Nombre">
+          <input value={draft.name} onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))} required />
+        </Field>
+        <Field label="Descripción">
+          <textarea value={draft.description} onChange={(event) => setDraft((prev) => ({ ...prev, description: event.target.value }))} rows={2} />
+        </Field>
+        <div className="field-row">
+          <Field label="Precio (USD)">
+            <input value={draft.price} onChange={(event) => setDraft((prev) => ({ ...prev, price: event.target.value }))} inputMode="decimal" />
+          </Field>
+          <Field label="Stock">
+            <input value={draft.stock} onChange={(event) => setDraft((prev) => ({ ...prev, stock: event.target.value }))} inputMode="numeric" />
+          </Field>
+          <Field label="Peso (kg)">
+            <input value={draft.weightKg} onChange={(event) => setDraft((prev) => ({ ...prev, weightKg: event.target.value }))} inputMode="decimal" />
+          </Field>
+          <Field label="Posición (1 a 4)">
+            <input value={draft.position} onChange={(event) => setDraft((prev) => ({ ...prev, position: event.target.value }))} inputMode="numeric" />
+          </Field>
+        </div>
+        <PhotoInput label="Foto del producto" value={draft.imageUrl} onChange={(url) => setDraft((prev) => ({ ...prev, imageUrl: url }))} />
+        <Toggle
+          checked={draft.requiresConfirmation}
+          onChange={(value) => setDraft((prev) => ({ ...prev, requiresConfirmation: value }))}
+          label="Requiere confirmación de stock"
+          hint="En el checkout se oculta el pago y se coordina por WhatsApp."
+        />
+      </Modal>
+    </div>
+  );
+}

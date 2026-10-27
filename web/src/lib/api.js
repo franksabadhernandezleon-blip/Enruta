@@ -1,7 +1,6 @@
 const TOKEN_KEY = 'enruta.token';
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
-
 export const setToken = (token) => {
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
@@ -15,7 +14,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path, { method = 'GET', body, formData } = {}) {
+async function request(path, { method = 'GET', body, formData, offline = false } = {}) {
   const headers = {};
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -28,11 +27,15 @@ async function request(path, { method = 'GET', body, formData } = {}) {
     payload = JSON.stringify(body);
   }
 
+  if (offline === false && typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new ApiError('Sin señal. Guardamos tu acción y la sincronizamos al volver.', 0);
+  }
+
   let response;
   try {
     response = await fetch(`/api${path}`, { method, headers, body: payload });
   } catch {
-    throw new ApiError('No pudimos conectar con el servidor. Inténtalo de nuevo.', 0);
+    throw new ApiError('No pudimos conectar con el servidor. Revisa tu señal.', 0);
   }
 
   if (response.status === 204) return null;
@@ -54,18 +57,89 @@ async function request(path, { method = 'GET', body, formData } = {}) {
   return data;
 }
 
+const uploadImage = (file) => {
+  const formData = new FormData();
+  formData.append('image', file);
+  return request('/uploads', { method: 'POST', formData });
+};
+
 export const api = {
-  login: ({ email, password }) => request('/auth/login', { method: 'POST', body: { email, password } }),
+  config: () => request('/config'),
   register: (payload) => request('/auth/register', { method: 'POST', body: payload }),
+  login: ({ email, password }) => request('/auth/login', { method: 'POST', body: { email, password } }),
+  google: (credential) => request('/auth/google', { method: 'POST', body: { credential } }),
   me: () => request('/auth/me'),
-  listProducts: () => request('/products'),
-  createProduct: (product) => request('/products', { method: 'POST', body: product }),
-  updateProduct: (id, changes) => request(`/products/${id}`, { method: 'PATCH', body: changes }),
-  deleteProduct: (id) => request(`/products/${id}`, { method: 'DELETE' }),
-  uploadProductImage: (id, file) => {
-    const formData = new FormData();
-    formData.append('image', file);
-    return request(`/products/${id}/image`, { method: 'POST', formData });
+  subscribePush: (subscription, role) =>
+    request('/auth/push', { method: 'POST', body: { subscription, role } }),
+  testPush: () => request('/auth/push/test', { method: 'POST' }),
+  uploadImage,
+
+  stores: () => request('/stores'),
+  store: (slug) => request(`/stores/${slug}`),
+  quote: (payload) => request('/quote', { method: 'POST', body: payload }),
+  createOrder: (payload) => request('/orders', { method: 'POST', body: payload }),
+  order: (code) => request(`/orders/${code}`),
+  myOrders: () => request('/orders/mine'),
+
+  owner: {
+    store: () => request('/owner/store'),
+    updateStore: (payload) => request('/owner/store', { method: 'PUT', body: payload }),
+    createProduct: (payload) => request('/owner/products', { method: 'POST', body: payload }),
+    updateProduct: (id, payload) => request(`/owner/products/${id}`, { method: 'PATCH', body: payload }),
+    deleteProduct: (id) => request(`/owner/products/${id}`, { method: 'DELETE' }),
+    orders: () => request('/owner/orders'),
+    release: (orderId, pin) =>
+      request(`/owner/orders/${orderId}/release`, { method: 'POST', body: { pin } }),
+    stats: () => request('/owner/stats'),
   },
-  removeProductImage: (id) => request(`/products/${id}/image`, { method: 'DELETE' }),
+
+  courier: {
+    ready: () => request('/courier/orders/ready'),
+    mine: () => request('/courier/orders/mine'),
+    order: (id) => request(`/courier/orders/${id}`),
+    accept: (id) => request(`/courier/orders/${id}/accept`, { method: 'POST' }),
+    checklist: (id, items) =>
+      request(`/courier/orders/${id}/checklist`, { method: 'POST', body: { items } }),
+    releaseStop: (orderId, stopId, pin, isOffline) =>
+      request(`/courier/orders/${orderId}/stops/${stopId}/release`, {
+        method: 'POST',
+        body: { pin, offline: Boolean(isOffline) },
+      }),
+    deliver: (id, code) => request(`/courier/orders/${id}/deliver`, { method: 'POST', body: { code } }),
+    sos: (payload) => request('/courier/sos', { method: 'POST', body: payload }),
+    pins: () => request('/courier/pins'),
+    wallet: () => request('/courier/wallet'),
+    requestPayout: (amountCents) =>
+      request('/courier/payouts', { method: 'POST', body: { amountCents } }),
+  },
+
+  admin: {
+    overview: () => request('/admin/overview'),
+    updateSettings: (payload) => request('/admin/settings', { method: 'PUT', body: payload }),
+    stores: () => request('/admin/stores'),
+    createStore: (payload) => request('/admin/stores', { method: 'POST', body: payload }),
+    updateStore: (id, payload) => request(`/admin/stores/${id}`, { method: 'PATCH', body: payload }),
+    deleteStore: (id) => request(`/admin/stores/${id}`, { method: 'DELETE' }),
+    products: (storeId) => request(`/admin/products${storeId ? `?storeId=${storeId}` : ''}`),
+    createProduct: (payload) => request('/admin/products', { method: 'POST', body: payload }),
+    updateProduct: (id, payload) => request(`/admin/products/${id}`, { method: 'PATCH', body: payload }),
+    deleteProduct: (id) => request(`/admin/products/${id}`, { method: 'DELETE' }),
+    orders: (params = {}) => {
+      const query = new URLSearchParams(
+        Object.entries(params).filter(([, value]) => value !== undefined && value !== ''),
+      ).toString();
+      return request(`/admin/orders${query ? `?${query}` : ''}`);
+    },
+    cancelOrder: (id, reason) =>
+      request(`/admin/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
+    users: (q) => request(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    ban: (id, payload) => request(`/admin/users/${id}/ban`, { method: 'POST', body: payload }),
+    unban: (id) => request(`/admin/users/${id}/unban`, { method: 'POST' }),
+    crm: () => request('/admin/crm'),
+    sos: () => request('/admin/sos'),
+    ackSos: (id) => request(`/admin/sos/${id}/ack`, { method: 'POST' }),
+    payouts: () => request('/admin/payouts'),
+    payPayout: (id) => request(`/admin/payouts/${id}/pay`, { method: 'POST' }),
+    testPush: () => request('/admin/push/test', { method: 'POST' }),
+  },
 };

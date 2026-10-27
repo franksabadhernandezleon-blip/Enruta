@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { adminEmails } from './config.js';
 import { query } from './db.js';
 
 const jwtSecret = process.env.JWT_SECRET;
@@ -12,69 +13,86 @@ if (!jwtSecret) {
 const tokenTtl = process.env.TOKEN_TTL || '72h';
 
 export const hashPassword = (password) => bcrypt.hash(password, 10);
+export const verifyPassword = (password, hash) => bcrypt.compare(password, hash || '');
 
-export const verifyPassword = (password, hash) => bcrypt.compare(password, hash);
-
-export const signToken = (ownerId) => jwt.sign({ sub: ownerId }, jwtSecret, { expiresIn: tokenTtl });
+export const signToken = (user) =>
+  jwt.sign({ sub: user.id, email: user.email, role: user.role }, jwtSecret, { expiresIn: tokenTtl });
 
 export const httpError = (status, message) => Object.assign(new Error(message), { status });
 
-const ACCOUNT_SQL = `
-  SELECT o.id AS owner_id, o.email, o.name AS owner_name,
-         s.id AS store_id, s.name AS store_name, s.slug
-  FROM owners o
-  LEFT JOIN stores s ON s.owner_id = o.id
-  WHERE o.id = $1
-  ORDER BY s.created_at ASC
-  LIMIT 1
-`;
+export const isAdmin = (user) =>
+  Boolean(user) && (user.role === 'admin' || adminEmails.includes(user.email));
 
-export const loadAccount = async (ownerId) => {
-  const { rows } = await query(ACCOUNT_SQL, [ownerId]);
-  if (!rows[0]) return null;
-  const row = rows[0];
-  return {
-    owner: { id: row.owner_id, email: row.email, name: row.owner_name },
-    store: row.store_id ? { id: row.store_id, name: row.store_name, slug: row.slug } : null,
-  };
-};
+export const bannedNow = (user) =>
+  Boolean(user) && (user.banned_permanent || (user.banned_until && new Date(user.banned_until) > new Date()));
 
-export const publicAccount = (account) => ({
-  owner: account.owner,
-  store: account.store,
+export const publicUser = (user) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  phone: user.phone,
+  role: isAdmin(user) ? 'admin' : user.role,
+  banned: bannedNow(user),
+  bannedUntil: user.banned_until,
+  bannedPermanent: user.banned_permanent,
 });
 
-// Adjunta la tienda del dueño autenticado a la request.
-export async function requireAuth(req, res, next) {
+export const findUserByEmail = async (email) => {
+  const { rows } = await query('SELECT * FROM users WHERE email = $1', [String(email || '').toLowerCase()]);
+  return rows[0] || null;
+};
+
+export const findUserById = async (id) => {
+  const { rows } = await query('SELECT * FROM users WHERE id = $1', [id]);
+  return rows[0] || null;
+};
+
+export const publicAccount = (user) => ({ user: publicUser(user) });
+
+const readToken = (req) => {
   const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  return header.startsWith('Bearer ') ? header.slice(7) : null;
+};
 
-  if (!token) {
-    return res.status(401).json({ error: 'Inicia sesión para continuar.' });
-  }
-
-  let payload;
+const attachUser = async (req) => {
+  const token = readToken(req);
+  if (!token) return null;
   try {
-    payload = jwt.verify(token, jwtSecret);
+    const payload = jwt.verify(token, jwtSecret);
+    const user = await findUserById(payload.sub);
+    if (!user) return null;
+    req.user = user;
+    return user;
   } catch {
-    return res.status(401).json({ error: 'Tu sesión expiró. Vuelve a iniciar sesión.' });
+    return null;
   }
+};
 
+// Adjunta req.user cuando hay token válido; sigue sin autenticar si no lo hay.
+export async function optionalAuth(req, res, next) {
   try {
-    const account = await loadAccount(payload.sub);
-    if (!account) {
-      return res.status(401).json({ error: 'Tu sesión ya no es válida.' });
-    }
-    req.account = account;
+    await attachUser(req);
     next();
   } catch (error) {
     next(error);
   }
 }
 
-export function requireStore(req, res, next) {
-  if (!req.account?.store) {
-    return res.status(409).json({ error: 'Tu cuenta aún no tiene una tienda asociada.' });
+export async function requireAuth(req, res, next) {
+  try {
+    const user = req.user || (await attachUser(req));
+    if (!user) return res.status(401).json({ error: 'Inicia sesión para continuar.' });
+    if (bannedNow(user)) return res.status(403).json({ error: 'Tu cuenta está suspendida.' });
+    next();
+  } catch (error) {
+    next(error);
   }
-  next();
 }
+
+export const requireRole =
+  (...roles) =>
+  (req, res, next) => {
+    const allowed = roles.some((role) => role === 'admin' && isAdmin(req.user)) || roles.includes(req.user?.role);
+    if (!allowed) return res.status(403).json({ error: 'No tienes permiso para esta sección.' });
+    next();
+  };

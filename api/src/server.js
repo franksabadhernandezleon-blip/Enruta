@@ -1,14 +1,19 @@
 import express from 'express';
 import multer from 'multer';
 import { port, uploadDir } from './config.js';
+import { requireAuth } from './auth.js';
 import { query } from './db.js';
+import adminRoutes from './routes/admin.js';
 import authRoutes from './routes/auth.js';
-import productRoutes from './routes/products.js';
+import catalogRoutes from './routes/catalog.js';
+import courierRoutes from './routes/courier.js';
+import ownerRoutes from './routes/owner.js';
+import { imageUpload } from './uploads.js';
 
 const app = express();
 
 app.disable('x-powered-by');
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '2mb' }));
 
 app.get('/health', async (req, res) => {
   try {
@@ -19,7 +24,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// Imágenes del catálogo: públicas, servidas desde el volumen de uploads.
+// Fotos de catálogo, logos y banners: públicos (los ve el cliente en el catálogo).
 app.use(
   '/uploads',
   express.static(uploadDir, {
@@ -30,7 +35,16 @@ app.use(
 );
 
 app.use('/api/auth', authRoutes);
-app.use('/api/products', productRoutes);
+app.use('/api/owner', ownerRoutes);
+app.use('/api/courier', courierRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api', catalogRoutes);
+
+// Subida dual: archivo local para cualquier usuario con sesión.
+app.post('/api/uploads', requireAuth, imageUpload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Selecciona una imagen.' });
+  res.status(201).json({ url: `/uploads/${req.file.filename}` });
+});
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada.' });

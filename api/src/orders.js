@@ -1,0 +1,451 @@
+import { randomInt } from 'node:crypto';
+import { httpError } from './auth.js';
+import { query } from './db.js';
+import { buildQuote, splitCommission } from './delivery.js';
+import { notifyAdmins, notifyCouriers, notifyEmail } from './push.js';
+import { getSettings } from './settings.js';
+
+const pin4 = () => String(randomInt(1000, 10000));
+
+const nextOrderCode = async () => {
+  const { rows } = await query("SELECT nextval('order_code_seq') AS value");
+  return `ENR-${rows[0].value}`;
+};
+
+const crm = (kind, note, { email = null, orderCode = null } = {}) =>
+  query('INSERT INTO crm_events (email, order_code, kind, note) VALUES ($1, $2, $3, $4)', [
+    email,
+    orderCode,
+    kind,
+    note,
+  ]);
+
+export const loadStoreIds = async (ids) => {
+  if (!ids.length) return [];
+  const { rows } = await query('SELECT * FROM stores WHERE id = ANY($1::uuid[])', [ids]);
+  return rows;
+};
+
+/** Arma items, paradas y cotización a partir de un carrito. */
+export const quoteCart = async ({ cart = [], destination, dynamic = false }) => {
+  if (!Array.isArray(cart) || !cart.length) throw httpError(400, 'Tu carrito está vacío.');
+  if (!destination || !Number.isFinite(Number(destination.lat)) || !Number.isFinite(Number(destination.lng))) {
+    throw httpError(400, 'Necesitamos el punto de entrega en el mapa.');
+  }
+
+  const settings = await getSettings();
+  const productIds = cart.map((line) => String(line.productId));
+  const { rows: products } = await query(
+    `SELECT p.*, s.name AS store_name, s.slug AS store_slug, s.lat AS store_lat, s.lng AS store_lng,
+            s.address AS store_address, s.phone AS store_phone, s.owner_email, s.open AS store_open
+       FROM products p JOIN stores s ON s.id = p.store_id
+      WHERE p.id = ANY($1::uuid[]) AND p.active`,
+    [productIds],
+  );
+
+  if (!products.length) throw httpError(400, 'Los productos de tu carrito ya no están disponibles.');
+
+  const lines = [];
+  let subtotalCents = 0;
+  let weightKg = 0;
+  let requiresConfirmation = false;
+
+  for (const line of cart) {
+    const product = products.find((row) => row.id === String(line.productId));
+    if (!product) continue;
+    const qty = Math.max(1, Math.min(50, Number(line.qty) || 1));
+    if (product.stock < qty) {
+      throw httpError(409, `No hay suficiente stock de "${product.name}" (quedan ${product.stock}).`);
+    }
+    subtotalCents += product.price_cents * qty;
+    weightKg += Number(product.weight_kg) * qty;
+    if (product.requires_confirmation) requiresConfirmation = true;
+    lines.push({
+      product,
+      qty,
+      name: product.name,
+      priceCents: product.price_cents,
+      storeId: product.store_id,
+      storeName: product.store_name,
+      lineTotalCents: product.price_cents * qty,
+    });
+  }
+
+  const stops = [];
+  for (const line of lines) {
+    if (stops.some((stop) => stop.storeId === line.storeId)) continue;
+    const product = line.product;
+    stops.push({
+      storeId: product.store_id,
+      storeName: product.store_name,
+      storeAddress: product.store_address,
+      storePhone: product.store_phone,
+      ownerEmail: product.owner_email,
+      lat: product.store_lat,
+      lng: product.store_lng,
+    });
+  }
+
+  const quote = buildQuote({ settings, stops, destination, dynamic });
+  const roundedWeight = Math.round(weightKg * 100) / 100;
+  const overWeight = roundedWeight > Number(settings.max_weight_kg);
+
+  return {
+    settings,
+    lines,
+    stops,
+    quote,
+    subtotalCents,
+    weightKg: roundedWeight,
+    overWeight,
+    requiresConfirmation,
+    deliveryCents: quote.deliveryCents,
+    totalCents: subtotalCents + quote.deliveryCents,
+  };
+};
+
+export const createOrder = async ({ cart, destination, customer, paymentMethod, paymentRef, notes, dynamic, user }) => {
+  const built = await quoteCart({ cart, destination, dynamic });
+
+  if (built.overWeight) {
+    throw httpError(
+      400,
+      `El pedido pesa ${built.weightKg} kg y supera el límite de ${built.settings.max_weight_kg} kg del delivery.`,
+    );
+  }
+
+  // La tasa BCV se congela aquí: el recibo guarda la tasa del día de la compra.
+  const rate = Number(built.settings.bcv_rate);
+  const totalBs = Math.round((built.totalCents / 100) * rate * 100) / 100;
+  const { courierCents, platformCents } = splitCommission(built.quote, built.deliveryCents);
+  const code = await nextOrderCode();
+
+  const { rows } = await query(
+    `INSERT INTO orders (code, customer_id, customer_name, customer_phone, address, lat, lng,
+                         pickup_pin, delivery_code, subtotal_cents, delivery_cents, total_cents,
+                         bcv_rate, total_bs, distance_km, extra_stops, dynamic_fee_applied, max_weight_kg,
+                         payment_method, payment_ref, notes, courier_commission_cents, platform_commission_cents)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+     RETURNING *`,
+    [
+      code,
+      user?.id || null,
+      String(customer?.name || user?.name || '').slice(0, 120),
+      String(customer?.phone || user?.phone || '').slice(0, 40),
+      String(customer?.address || '').slice(0, 240),
+      Number(destination.lat),
+      Number(destination.lng),
+      pin4(),
+      pin4(),
+      built.subtotalCents,
+      built.deliveryCents,
+      built.totalCents,
+      rate,
+      totalBs,
+      built.quote.distanceKm,
+      built.quote.extraStops,
+      built.quote.dynamicApplied,
+      Number(built.settings.max_weight_kg),
+      String(paymentMethod || '').slice(0, 40),
+      String(paymentRef || '').slice(0, 80),
+      String(notes || '').slice(0, 300),
+      courierCents,
+      platformCents,
+    ],
+  );
+
+  const order = rows[0];
+
+  for (const line of built.lines) {
+    await query(
+      `INSERT INTO order_items (order_id, product_id, store_id, store_name, name, qty, price_cents)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [order.id, line.product.id, line.storeId, line.storeName, line.name, line.qty, line.priceCents],
+    );
+    await query('UPDATE products SET stock = GREATEST(0, stock - $2), updated_at = now() WHERE id = $1', [
+      line.product.id,
+      line.qty,
+    ]);
+  }
+
+  let seq = 0;
+  for (const stop of built.stops) {
+    seq += 1;
+    await query(
+      `INSERT INTO order_stops (order_id, store_id, store_name, store_address, store_phone, lat, lng, seq, extra_fee_cents)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        order.id,
+        stop.storeId,
+        stop.storeName,
+        stop.storeAddress,
+        stop.storePhone,
+        stop.lat,
+        stop.lng,
+        seq,
+        seq === 1 ? 0 : built.settings.extra_stop_cents,
+      ],
+    );
+  }
+
+  await crm('order', `Pedido ${code} por ${(built.totalCents / 100).toFixed(2)} USD`, {
+    email: order.customer_phone ? null : user?.email || null,
+    orderCode: code,
+  });
+
+  const adminEmails = (built.settings.admin_emails || []).map((email) => String(email).toLowerCase());
+  await notifyAdmins(adminEmails, {
+    title: `Nuevo pedido ${code}`,
+    body: `${order.customer_name || 'Cliente'} · ${(built.totalCents / 100).toFixed(2)} USD · ${built.stops.length} parada(s)`,
+    url: '/tuteteno',
+    tag: `order-${order.id}`,
+  }).catch(() => 0);
+
+  for (const stop of built.stops) {
+    await notifyEmail(stop.ownerEmail, {
+      title: `Nueva orden ${code}`,
+      body: `Tienes una orden de ${stop.storeName} por preparar.`,
+      url: '/mitienda',
+      tag: `order-${order.id}-${stop.storeId}`,
+    }).catch(() => 0);
+  }
+
+  return loadOrder({ id: order.id });
+};
+
+export const loadOrder = async ({ id, code } = {}) => {
+  const filter = id ? 'id = $1' : 'code = $1';
+  const { rows } = await query(`SELECT * FROM orders WHERE ${filter}`, [id || code]);
+  const order = rows[0];
+  if (!order) return null;
+
+  const [items, stops] = await Promise.all([
+    query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY store_name, name', [order.id]),
+    query('SELECT * FROM order_stops WHERE order_id = $1 ORDER BY seq', [order.id]),
+  ]);
+
+  return { ...order, items: items.rows, stops: stops.rows };
+};
+
+export const serializeOrder = (order, { view = 'customer' } = {}) => {
+  const full = view === 'admin' || view === 'courier';
+  return {
+    id: order.id,
+    code: order.code,
+    status: order.status,
+    sos: order.sos,
+    createdAt: order.created_at,
+    acceptedAt: order.accepted_at,
+    deliveredAt: order.delivered_at,
+    cancelledAt: order.cancelled_at,
+    customerName: order.customer_name,
+    customerPhone: full ? order.customer_phone : undefined,
+    address: order.address,
+    lat: order.lat,
+    lng: order.lng,
+    deliveryCode: view === 'customer' || view === 'admin' ? order.delivery_code : undefined,
+    pickupPin: full ? order.pickup_pin : undefined,
+    subtotalCents: order.subtotal_cents,
+    deliveryCents: order.delivery_cents,
+    totalCents: order.total_cents,
+    bcvRate: Number(order.bcv_rate),
+    totalBs: Number(order.total_bs),
+    distanceKm: Number(order.distance_km),
+    extraStops: order.extra_stops,
+    dynamicFeeApplied: order.dynamic_fee_applied,
+    maxWeightKg: Number(order.max_weight_kg),
+    paymentMethod: order.payment_method,
+    paymentRef: order.payment_ref,
+    notes: order.notes,
+    courier: order.courier_id ? { name: order.courier_name, phone: full || true ? order.courier_phone : null } : null,
+    courierCommissionCents: full ? order.courier_commission_cents : undefined,
+    platformCommissionCents: view === 'admin' ? order.platform_commission_cents : undefined,
+    checklist: order.checklist,
+    items: (order.items || []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      qty: item.qty,
+      priceCents: item.price_cents,
+      storeId: item.store_id,
+      storeName: item.store_name,
+    })),
+    stops: (order.stops || []).map((stop) => ({
+      id: stop.id,
+      storeId: stop.store_id,
+      storeName: stop.store_name,
+      seq: stop.seq,
+      released: stop.released,
+      releasedAt: stop.released_at,
+      releasedBy: stop.released_by,
+      extraFeeCents: stop.extra_fee_cents,
+      lat: full ? stop.lat : undefined,
+      lng: full ? stop.lng : undefined,
+      storeAddress: full ? stop.store_address : undefined,
+      storePhone: full ? stop.store_phone : undefined,
+    })),
+  };
+};
+
+export const releaseStop = async ({ orderId, stopId, pin, by = 'store' }) => {
+  const order = await loadOrder({ id: orderId });
+  if (!order) throw httpError(404, 'Ese pedido no existe.');
+  if (String(pin || '').trim() !== order.pickup_pin) {
+    throw httpError(400, 'El PIN de retiro no coincide. Pídelo de nuevo al motorizado.');
+  }
+
+  const stop = order.stops.find((row) => row.id === stopId) || order.stops[0];
+  if (!stop) throw httpError(404, 'Ese pedido no tiene paradas.');
+
+  await query(
+    'UPDATE order_stops SET released = true, released_at = now(), released_by = $2 WHERE id = $1',
+    [stop.id, by],
+  );
+
+  const { rows: pending } = await query(
+    'SELECT count(*)::int AS total FROM order_stops WHERE order_id = $1 AND released = false',
+    [order.id],
+  );
+
+  const allReleased = pending[0].total === 0;
+  let updated = order;
+
+  if (allReleased && ['pending', 'picking'].includes(order.status)) {
+    const { rows } = await query(
+      "UPDATE orders SET status = 'ready', updated_at = now() WHERE id = $1 RETURNING id",
+      [order.id],
+    );
+    if (rows[0]) {
+      updated = await loadOrder({ id: order.id });
+      await notifyCouriers({
+        title: `Pedido ${order.code} listo`,
+        body: `${order.stops.length} parada(s) · ${Number(order.distance_km).toFixed(1)} km · delivery ${(
+          order.delivery_cents / 100
+        ).toFixed(2)} USD`,
+        url: '/repartidor',
+        tag: `ready-${order.id}`,
+      }).catch(() => 0);
+    }
+  } else if (order.status === 'pending') {
+    await query("UPDATE orders SET status = 'picking', updated_at = now() WHERE id = $1", [order.id]);
+    updated = await loadOrder({ id: order.id });
+  }
+
+  await crm('release', `Parada ${stop.store_name} liberada en ${order.code}`, { orderCode: order.code });
+  return updated;
+};
+
+// Anti-choque: el pedido se bloquea para el primero que acepta.
+export const acceptOrder = async ({ orderId, courier }) => {
+  const { rows } = await query(
+    `UPDATE orders SET courier_id = $2, courier_name = $3, courier_phone = $4,
+                       status = 'accepted', accepted_at = now(), updated_at = now()
+      WHERE id = $1 AND courier_id IS NULL AND status = 'ready'
+      RETURNING id`,
+    [orderId, courier.id, courier.name || courier.email, courier.phone || null],
+  );
+
+  if (!rows[0]) throw httpError(409, 'Ese pedido ya no está disponible: otro motorizado lo tomó.');
+  return loadOrder({ id: orderId });
+};
+
+export const setChecklist = async ({ orderId, items }) => {
+  const order = await loadOrder({ id: orderId });
+  if (!order) throw httpError(404, 'Ese pedido no existe.');
+  const clean = (Array.isArray(items) ? items : []).slice(0, 3).map(Boolean);
+  if (clean.length < 3 || clean.some((value) => !value)) {
+    throw httpError(400, 'Debes marcar los 3 puntos del checklist antes de iniciar la ruta.');
+  }
+  const { rows } = await query(
+    "UPDATE orders SET checklist = $2::jsonb, status = 'on_route', updated_at = now() WHERE id = $1 RETURNING id",
+    [orderId, JSON.stringify({ empaque: true, productos: true, contenido: true, at: new Date().toISOString() })],
+  );
+  if (!rows[0]) throw httpError(404, 'Ese pedido no existe.');
+  return loadOrder({ id: orderId });
+};
+
+export const deliverOrder = async ({ orderId, code, courier }) => {
+  const order = await loadOrder({ id: orderId });
+  if (!order) throw httpError(404, 'Ese pedido no existe.');
+  if (String(code || '').trim() !== order.delivery_code) {
+    throw httpError(400, 'El código de entrega no coincide con el recibo del cliente.');
+  }
+  if (order.delivered_at) throw httpError(409, 'Ese pedido ya fue entregado.');
+
+  await query(
+    `UPDATE orders SET status = 'delivered', delivered_at = now(), updated_at = now() WHERE id = $1`,
+    [order.id],
+  );
+
+  if (order.courier_commission_cents > 0) {
+    await query(
+      `INSERT INTO wallet_entries (courier_id, order_code, amount_cents, kind, note)
+       VALUES ($1, $2, $3, 'earning', $4)`,
+      [order.courier_id || courier?.id, order.code, order.courier_commission_cents, `Entrega ${order.code}`],
+    );
+  }
+
+  await crm('delivered', `Pedido ${order.code} entregado`, { orderCode: order.code });
+  return loadOrder({ id: order.id });
+};
+
+export const cancelOrder = async ({ orderId, reason = '', actor = 'admin' }) => {
+  const order = await loadOrder({ id: orderId });
+  if (!order) throw httpError(404, 'Ese pedido no existe.');
+  if (order.status === 'delivered') throw httpError(409, 'Un pedido entregado no se puede cancelar.');
+
+  for (const item of order.items) {
+    if (!item.product_id) continue;
+    await query('UPDATE products SET stock = stock + $2, updated_at = now() WHERE id = $1', [
+      item.product_id,
+      item.qty,
+    ]);
+  }
+
+  await query(
+    `UPDATE orders SET status = 'cancelled', cancelled_at = now(), updated_at = now(),
+                       courier_commission_cents = 0, platform_commission_cents = 0
+      WHERE id = $1`,
+    [order.id],
+  );
+  await query("DELETE FROM wallet_entries WHERE order_code = $1 AND kind = 'earning'", [order.code]);
+  await crm('cancel', `Pedido ${order.code} cancelado (${actor}): ${reason || 'sin motivo'}`, {
+    orderCode: order.code,
+  });
+
+  return loadOrder({ id: order.id });
+};
+
+export const raiseSos = async ({ courier, orderId, lat, lng }) => {
+  const order = orderId ? await loadOrder({ id: orderId }) : null;
+  const settings = await getSettings();
+
+  await query(
+    `INSERT INTO sos_alerts (courier_id, courier_name, courier_phone, order_id, order_code, lat, lng)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [
+      courier.id,
+      courier.name || courier.email,
+      courier.phone || null,
+      order?.id || null,
+      order?.code || null,
+      Number.isFinite(Number(lat)) ? Number(lat) : null,
+      Number.isFinite(Number(lng)) ? Number(lng) : null,
+    ],
+  );
+
+  if (order) await query('UPDATE orders SET sos = true, updated_at = now() WHERE id = $1', [order.id]);
+  await crm('sos', `Alerta SOS de ${courier.name || courier.email}${order ? ` en ${order.code}` : ''}`);
+
+  const adminEmails = (settings.admin_emails || []).map((email) => String(email).toLowerCase());
+  await notifyAdmins(adminEmails, {
+    title: '🚨 SOS motorizado',
+    body: `${courier.name || courier.email}${order ? ` · ${order.code}` : ''} · GPS ${
+      lat && lng ? `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}` : 'sin señal'
+    }`,
+    url: '/tuteteno',
+    tag: 'sos',
+    requireInteraction: true,
+  }).catch(() => 0);
+
+  return { ok: true };
+};

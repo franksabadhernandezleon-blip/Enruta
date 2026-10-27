@@ -4,62 +4,71 @@ import { api, getToken, setToken } from './api.js';
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [account, setAccount] = useState(null);
+  const [user, setUser] = useState(null);
+  const [store, setStore] = useState(null);
   const [ready, setReady] = useState(false);
 
+  const apply = useCallback((data) => {
+    if (!data) {
+      setUser(null);
+      setStore(null);
+      return null;
+    }
+    setToken(data.token);
+    setUser(data.user);
+    setStore(data.store || null);
+    return data.user;
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!getToken()) {
+      setUser(null);
+      setStore(null);
+      return null;
+    }
+    try {
+      const data = await api.me();
+      setUser(data.user);
+      setStore(data.store || null);
+      return data.user;
+    } catch {
+      setToken(null);
+      setUser(null);
+      setStore(null);
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
-    let active = true;
-
-    const restore = async () => {
-      if (!getToken()) {
-        setReady(true);
-        return;
-      }
-      try {
-        const me = await api.me();
-        if (active) setAccount(me);
-      } catch {
-        setToken(null);
-      } finally {
-        if (active) setReady(true);
-      }
-    };
-
-    restore();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const login = useCallback(async ({ email, password }) => {
-    const result = await api.login({ email, password });
-    setToken(result.token);
-    setAccount({ owner: result.owner, store: result.store });
-    return result;
-  }, []);
-
-  const register = useCallback(async (payload) => {
-    const result = await api.register(payload);
-    setToken(result.token);
-    setAccount({ owner: result.owner, store: result.store });
-    return result;
-  }, []);
-
-  const logout = useCallback(() => {
-    setToken(null);
-    setAccount(null);
-  }, []);
+    refresh().finally(() => setReady(true));
+  }, [refresh]);
 
   const value = useMemo(
-    () => ({ account, ready, login, register, logout }),
-    [account, ready, login, register, logout],
+    () => ({
+      user,
+      store,
+      ready,
+      isAdmin: user?.role === 'admin',
+      isOwner: user?.role === 'owner' || user?.role === 'admin',
+      isCourier: user?.role === 'courier' || user?.role === 'admin',
+      login: async (payload) => apply(await api.login(payload)),
+      register: async (payload) => apply(await api.register(payload)),
+      loginWithGoogle: async (credential) => apply(await api.google(credential)),
+      logout: () => {
+        setToken(null);
+        setUser(null);
+        setStore(null);
+      },
+      refresh,
+    }),
+    [user, store, ready, apply, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth() {
+export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth debe usarse dentro de AuthProvider');
+  if (!context) throw new Error('useAuth necesita AuthProvider');
   return context;
-}
+};
