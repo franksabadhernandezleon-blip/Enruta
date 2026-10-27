@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const port = Number(process.env.PORT || 8000);
+// Render inyecta PORT en el servicio web (10000 por defecto); este valor es solo el respaldo
+// cuando nadie lo define. En desarrollo el compose fija PORT=8000 y el proxy de Vite lo usa.
+export const port = Number(process.env.PORT || 10000);
 
 export const uploadDir = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });

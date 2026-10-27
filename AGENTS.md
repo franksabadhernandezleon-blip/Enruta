@@ -113,6 +113,8 @@ En desarrollo esa carpeta se ignora porque la app la sirve Vite, así que el flu
   funciona sin datos demo.
 - Las fotos viven en el disco (`UPLOAD_DIR=/var/data/uploads`): sin disco se pierden en cada deploy.
 - `JWT_SECRET` lo genera Render; `VAPID_*` y `GOOGLE_CLIENT_ID` se cargan en el dashboard.
+- La API escucha en `PORT` (`api/src/config.js`): Render lo inyecta solo y el respaldo es 10000; en
+  desarrollo el compose fija `PORT=8000`, que es el que usa el proxy de Vite (`api:8000`).
 
 ## Cómo verificar
 
