@@ -2,5 +2,11 @@
   "previewPort": 3000,
   "healthPath": "/",
   "startCommand": "docker compose -f docker-compose.base44.yml up -d",
-  "secrets": []
+  "secrets": [
+    {
+      "name": "GOOGLE_CLIENT_ID",
+      "description": "Client ID de Google Cloud (OAuth web) para el botón \"Entrar con Google\". Opcional: sin él la app arranca y el login por correo/contraseña funciona; la API responde 503 en /api/auth/google.",
+      "requiredAtBoot": false
+    }
+  ]
 }

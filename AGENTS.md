@@ -1,7 +1,8 @@
 # ENRUTA — notas de desarrollo
 
-Aplicación de delivery. Este repo se creó desde cero sobre un README vacío: no había código
-previo. Lo que existe hoy es el panel de tienda (catálogo + carga de imágenes de productos).
+PWA de delivery multi-tienda para Caripito: API Express + Postgres (`api/`), cliente React/Vite con
+Service Worker (`web/`). Cubre catálogo por tienda, carrito multi-parada, motor de delivery con tasa
+BCV congelada en el recibo, paneles de admin/dueño/motorizado y notificaciones Web Push.
 
 ## Cómo corre
 
@@ -20,26 +21,40 @@ docker compose -f docker-compose.base44.yml ps
 docker compose -f docker-compose.base44.yml logs -f api
 ```
 
-Las dependencias se instalan en el arranque (`npm ci`) dentro de volúmenes nombrados, así que
-cambiar `package.json` / `package-lock.json` requiere `docker compose ... up -d --force-recreate`
-(o reinstalar a mano) para ese servicio.
+## Dependencias (ojo)
+
+Cada servicio instala en el arranque con `npm ci` contra `package-lock.json` y guarda `node_modules`
+en un volumen nombrado. Si se agrega una dependencia a `api/package.json`:
+
+```bash
+docker compose -f docker-compose.base44.yml exec -T api npm install --no-audit --no-fund
+docker compose -f docker-compose.base44.yml restart api
+```
+
+`npm install` dentro del contenedor actualiza `api/package-lock.json` (lo que queda en el repo) y el
+volumen. Sin ese paso, `npm ci` aborta por lockfile desincronizado y la API queda caída con
+`ERR_MODULE_NOT_FOUND`; `node --watch` no reinstala dependencias por sí solo.
 
 ## Detalles que no son obvios
 
 - **Un solo origen.** El navegador solo habla con el puerto 3000; Vite hace proxy de `/api` y
   `/uploads` hacia `api:8000`. Por eso no hay CORS: cualquier endpoint nuevo se consume con rutas
-  relativas (`/api/...`).
+  relativas (`/api/...`). La API no publica puerto al host.
 - **Las imágenes son públicas.** Se guardan en el volumen `enruta_uploads` y la API las sirve en
-  `/uploads/<archivo>`; cualquiera con el enlace puede abrirlas, igual que en el catálogo que ve el
-  cliente. Al reemplazar o quitar una foto, el archivo anterior se borra del volumen.
-- **Pasarela de carga.** `POST /api/products/:id/image` (multipart, campo `image`) valida
-  MIME (`image/jpeg|png|webp|gif`) y tamaño (5 MB), y solo acepta productos de la tienda del dueño
-  autenticado. Límites duplicados en `api/src/config.js` y en `web/src/components/ProductImage.jsx`.
-- **Migraciones idempotentes.** `npm run migrate` aplica el esquema con `IF NOT EXISTS` y solo
-  siembra la demo cuando la tabla `owners` está vacía. Nunca borra datos existentes.
-- **Cuenta demo:** `dueno@enruta.com` / `enruta123` (tienda "Pizzería El Rincón" con 4 productos).
+  `/uploads/<archivo>`; cualquiera con el enlace puede abrirlas. Al reemplazar o quitar una foto, el
+  archivo anterior se borra del volumen.
+- **Migraciones idempotentes.** `npm run migrate` aplica `api/db/schema.sql` con `IF NOT EXISTS` y
+  solo siembra la demo cuando `users` está vacía. Nunca borra datos existentes.
+- **Cuentas demo** (contraseña `enruta123` para todas): `dueno@enruta.com` (dueño de "Pizzería El
+  Rincón"), `motorizado@enruta.com` (motorizado), `cliente@enruta.com` (cliente),
+  `admin@enruta.com` y `ADMIN_EMAIL` (admin).
 - **`JWT_SECRET`** viene de `.env.base44-defaults` como placeholder de desarrollo; `/run/base44/app.env`
-  se declara después en `env_file`, así que un valor real del dashboard siempre gana.
+  se declara después en `env_file`, así que un valor real del dashboard siempre gana. Los placeholders
+  de VAPID también viven ahí, así que Web Push funciona en desarrollo.
+- **Google es opcional.** Sin `GOOGLE_CLIENT_ID` la API responde 503 en `/api/auth/google`, la clave
+  `googleClientId` de `/api/config` queda en null y la pantalla de login oculta el botón de Google
+  (muestra el aviso de configuración en su lugar). El login por correo/contraseña funciona igual; para
+  activar Google hay que definir `GOOGLE_CLIENT_ID` en los secretos de la app.
 
 ## Modo preview (Base44)
 
@@ -52,24 +67,24 @@ el wildcard, Vite responde 403.
 ## Cómo verificar
 
 ```bash
-# login y catálogo
+# la API responde a través del proxy de Vite
+curl -s -o /dev/null -w '%{http_code}\n' localhost:3000/
+curl -s localhost:3000/api/config | head -c 200
+
+# login por correo/contraseña
 TOKEN=$(curl -s -X POST localhost:3000/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"dueno@enruta.com","password":"enruta123"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
-curl -s localhost:3000/api/products -H "Authorization: Bearer $TOKEN"
-
-# carga de imagen
-curl -s -X POST localhost:3000/api/products/<id>/image -H "Authorization: Bearer $TOKEN" \
-  -F "image=@foto.png;type=image/png"
+  -d '{"email":"dueno@enruta.com","password":"enruta123"}' \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+curl -s localhost:3000/api/auth/me -H "Authorization: Bearer $TOKEN"
 ```
 
-En el navegador: entra con la cuenta demo, abre el panel y sube una foto con el botón "Subir foto"
-o arrastrándola sobre la tarjeta del producto. La imagen aparece en la tarjeta y queda servida en
-`/uploads/...`.
+En el navegador (puerto 3000): el catálogo lista las tres tiendas demo; "Entrar" con la cuenta demo
+lleva al encabezado personalizado y `/mitienda` abre el panel del dueño. Los roles se comprueban con
+las cuentas motorizado/cliente/admin.
 
 ## Pendiente
 
 - No hay tests automatizados todavía.
-- La API es local (Express + Postgres). Para usar un proyecto real de Supabase hay que reemplazar
-  `web/src/lib/api.js` por `@supabase/supabase-js` (auth + `storage.from('product-images')`) y
-  mover el esquema a `supabase/migrations`; requiere las claves del proyecto.
+- El acceso con Google queda desactivado hasta cargar un `GOOGLE_CLIENT_ID` real (proyecto de Google
+  Cloud con el origen del preview autorizado).
