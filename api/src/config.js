@@ -1,10 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const port = Number(process.env.PORT || 8000);
 
 export const uploadDir = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
+
+// Cliente compilado por Vite. En producción lo sirve este mismo Express para conservar
+// un solo origen (Render); en desarrollo la carpeta no existe y la sirve el servidor de Vite.
+export const webDistDir =
+  process.env.WEB_DIST_DIR || fileURLToPath(new URL('../../web/dist', import.meta.url));
 
 export const maxImageBytes = 5 * 1024 * 1024;
 

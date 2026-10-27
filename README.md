@@ -45,6 +45,34 @@ api/                 Express + Postgres
 
 El navegador solo habla con el puerto 3000: Vite hace proxy de `/api` y `/uploads` hacia la API.
 
+## Despliegue en Render
+
+El repositorio incluye el Blueprint `render.yaml`: en Render, **New → Blueprint**, elige este
+repositorio y confirma. Crea la base Postgres, un disco persistente para las fotos y un **único
+servicio web** que sirve la PWA compilada y la API Express: el cliente habla con rutas relativas
+(`/api`, `/uploads`), así que no hay CORS ni URL de API que configurar.
+
+| Ajuste | Valor |
+| --- | --- |
+| Build | `npm ci --prefix api && npm ci --prefix web && npm run build --prefix web` |
+| Migraciones | `preDeployCommand: node api/scripts/migrate.js` |
+| Arranque | `node api/src/server.js` (sirve `web/dist` si existe) |
+| Healthcheck | `/health` |
+| Fotos | disco `/var/data` con `UPLOAD_DIR=/var/data/uploads` |
+
+Variables que Render pide al crear el Blueprint (se pueden dejar vacías y completar después en el
+dashboard): `ADMIN_EMAIL` (tu correo; esa cuenta nace admin), `VAPID_PUBLIC_KEY`,
+`VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (Web Push) y `GOOGLE_CLIENT_ID` (login con Google). `JWT_SECRET`
+lo genera Render y `DATABASE_URL` sale de la base del Blueprint.
+
+Antes de abrirlo al público:
+
+- El disco persistente y `preDeployCommand` requieren instancias de pago; revisa el plan elegido.
+- `SEED_DEMO=0` ya viaja en el Blueprint para no crear las cuentas demo (contraseña pública
+  `enruta123`) en producción: regístrate con `ADMIN_EMAIL` y esa cuenta nace admin.
+- Para el login con Google, autoriza el dominio de Render en los orígenes del cliente OAuth.
+- El Blueprint despliega la rama por defecto del repositorio: primero hay que fusionar el PR.
+
 ## Notas
 
 - `JWT_SECRET` se toma de `.env.base44-defaults` (placeholder de desarrollo). Cualquier valor que se

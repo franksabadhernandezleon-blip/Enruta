@@ -97,6 +97,23 @@ wildcard `.<BASE44_SANDBOX_HOST_DOMAIN>` hay que permitir `3000-<dominio>`: el p
 al mismo label DNS, así que el host del preview es *hermano* del dominio, no un subdominio — con solo
 el wildcard, Vite responde 403.
 
+## Producción (Render)
+
+`render.yaml` es el Blueprint: Postgres, disco persistente para las fotos y **un solo servicio web**
+que compila `web/` y arranca la API. No hay servicio aparte para el cliente: `api/src/server.js`
+sirve `web/dist` cuando existe (config `WEB_DIST_DIR`, por defecto `../../web/dist` respecto a
+`api/src`) con fallback SPA para las rutas del cliente y `Cache-Control` inmutable solo en `/assets`.
+En desarrollo esa carpeta se ignora porque la app la sirve Vite, así que el flujo local no cambia.
+
+- Build: `npm ci --prefix api && npm ci --prefix web && npm run build --prefix web`.
+- Migraciones: `preDeployCommand: node api/scripts/migrate.js`. Si el plan no admite
+  `preDeployCommand`, muévelo al arranque (`node api/scripts/migrate.js && node api/src/server.js`).
+- `SEED_DEMO=0` evita sembrar la demo. Un arranque limpio aplica solo el esquema y la fila de
+  `settings` se crea sola con los valores por defecto (`api/src/settings.js`), así que la app
+  funciona sin datos demo.
+- Las fotos viven en el disco (`UPLOAD_DIR=/var/data/uploads`): sin disco se pierden en cada deploy.
+- `JWT_SECRET` lo genera Render; `VAPID_*` y `GOOGLE_CLIENT_ID` se cargan en el dashboard.
+
 ## Cómo verificar
 
 ```bash

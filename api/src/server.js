@@ -1,6 +1,8 @@
 import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
 import multer from 'multer';
-import { port, uploadDir } from './config.js';
+import { port, uploadDir, webDistDir } from './config.js';
 import { requireAuth } from './auth.js';
 import { query } from './db.js';
 import adminRoutes from './routes/admin.js';
@@ -45,6 +47,37 @@ app.post('/api/uploads', requireAuth, imageUpload.single('image'), (req, res) =>
   if (!req.file) return res.status(400).json({ error: 'Selecciona una imagen.' });
   res.status(201).json({ url: `/uploads/${req.file.filename}` });
 });
+
+// En producción (Render) el cliente compilado se sirve desde este mismo proceso: un solo
+// origen, igual que en desarrollo, donde el proxy de Vite hace ese papel. En desarrollo
+// la carpeta no existe y esta parte queda desactivada.
+const clientIndex = path.join(webDistDir, 'index.html');
+
+if (fs.existsSync(clientIndex)) {
+  console.log(`[api] sirviendo el cliente compilado desde ${webDistDir}`);
+
+  app.use(
+    express.static(webDistDir, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        // Los archivos de /assets llevan hash en el nombre: nunca cambian.
+        // index.html, sw.js y el manifiesto sí, así que se revalidan siempre.
+        res.setHeader(
+          'Cache-Control',
+          path.relative(webDistDir, filePath).startsWith(`assets${path.sep}`)
+            ? 'public, max-age=31536000, immutable'
+            : 'no-cache',
+        );
+      },
+    }),
+  );
+
+  // Rutas del cliente (React Router): cualquier GET que no sea de la API devuelve la PWA.
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
+    res.sendFile(clientIndex);
+  });
+}
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada.' });

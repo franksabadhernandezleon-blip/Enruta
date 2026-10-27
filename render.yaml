@@ -1,0 +1,58 @@
+# ENRUTA en Render (https://render.com) — Blueprint de despliegue.
+# Cómo usarlo: Render Dashboard → New → Blueprint → elige este repositorio y confirma.
+#
+# Un solo servicio web sirve la PWA compilada y la API Express: el cliente habla
+# siempre con rutas relativas (/api, /uploads), igual que en desarrollo con el proxy
+# de Vite, así que no hay CORS ni URL de API que configurar.
+
+databases:
+  - name: enruta-db
+    databaseName: enruta
+    user: enruta
+
+services:
+  - type: web
+    name: enruta
+    runtime: node
+    # Render compila y arranca desde la raíz: el cliente vive en web/ y la API en api/.
+    buildCommand: npm ci --prefix api && npm ci --prefix web && npm run build --prefix web
+    # Migraciones idempotentes (esquema + settings) antes de promover la versión nueva.
+    preDeployCommand: node api/scripts/migrate.js
+    startCommand: node api/src/server.js
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    # Sin disco persistente las fotos de catálogo se pierden en cada despliegue.
+    disk:
+      name: enruta-uploads
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: enruta-db
+          property: connectionString
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      # Render genera un secreto real: en desarrollo el JWT viene del placeholder local.
+      - key: JWT_SECRET
+        generateValue: true
+      # Sin demo no se crean las cuentas de prueba (contraseña pública "enruta123"):
+      # la cuenta admin nace al registrarse con ADMIN_EMAIL.
+      - key: SEED_DEMO
+        value: "0"
+      # Render pide estos valores al crear el Blueprint; si quedan vacíos la app arranca
+      # igual (Web Push y Google quedan desactivados) y se completan después en el dashboard.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false

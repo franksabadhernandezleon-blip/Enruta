@@ -76,6 +76,13 @@ const STORES = [
 ];
 
 const seed = async () => {
+  // En producción (Render) SEED_DEMO=0: las cuentas de prueba usan la contraseña pública
+  // "enruta123"; el admin real nace al registrarse con ADMIN_EMAIL.
+  if (process.env.SEED_DEMO === '0') {
+    console.log('[migrate] SEED_DEMO=0: no se siembran tiendas ni cuentas demo');
+    return;
+  }
+
   const { rows } = await pool.query('SELECT count(*)::int AS total FROM users');
   if (rows[0].total > 0) {
     console.log('[migrate] ya hay datos, no se siembra la demo');
