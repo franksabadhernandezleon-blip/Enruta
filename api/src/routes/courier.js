@@ -7,6 +7,7 @@ import {
   loadOrder,
   raiseSos,
   releaseStop,
+  saveCourierLocation,
   serializeOrder,
   setChecklist,
 } from '../orders.js';
@@ -27,11 +28,14 @@ const courierView = (order) => ({
   mine: order.courier_id,
 });
 
-// Radar: itinerario completo (paradas, distancias y ganancia) antes de aceptar.
+// Radar: el pedido aparece apenas la tienda lo recibe (sin PIN ni liberación previa),
+// con el itinerario completo antes de aceptar.
 router.get('/orders/ready', async (req, res, next) => {
   try {
     const { rows } = await query(
-      `SELECT id FROM orders WHERE status = 'ready' AND courier_id IS NULL ORDER BY created_at ASC LIMIT 30`,
+      `SELECT id FROM orders
+        WHERE courier_id IS NULL AND status IN ('pending','picking','ready')
+        ORDER BY created_at ASC LIMIT 30`,
     );
     const orders = [];
     for (const row of rows) {
@@ -109,6 +113,21 @@ router.post('/orders/:id/deliver', async (req, res, next) => {
   }
 });
 
+// Ubicación en vivo: la tienda la ve en su mini-mapa mientras la ruta está activa.
+router.post('/location', async (req, res, next) => {
+  try {
+    const result = await saveCourierLocation({
+      courier: req.user,
+      lat: req.body?.lat,
+      lng: req.body?.lng,
+      orderId: req.body?.orderId || null,
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post('/sos', async (req, res, next) => {
   try {
     const result = await raiseSos({
@@ -160,7 +179,8 @@ router.get('/wallet', async (req, res, next) => {
       query(
         `SELECT
            COALESCE(sum(CASE WHEN kind = 'earning' THEN amount_cents ELSE 0 END), 0)::int AS earned,
-           COALESCE(sum(CASE WHEN kind = 'payout' THEN amount_cents ELSE 0 END), 0)::int AS paid`,
+           COALESCE(sum(CASE WHEN kind = 'payout' THEN amount_cents ELSE 0 END), 0)::int AS paid
+         FROM wallet_entries WHERE courier_id = $1`,
         [req.user.id],
       ),
     ]);

@@ -1764,3 +1764,187 @@ textarea {
     width: 96px;
   }
 }
+
+/* --------------------- Barra inferior fija (5 opciones) --------------------- */
+
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px rgba(22, 23, 27, 0.1);
+}
+
+.tabbar-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 7px 2px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+}
+
+.tabbar-item.is-active {
+  color: var(--brand-red);
+  background: var(--brand-orange-soft);
+}
+
+.tabbar-item:hover {
+  color: var(--brand-red-dark);
+}
+
+/* El contenido del cliente nunca queda debajo de la barra inferior. */
+.client-shell .page {
+  padding-bottom: 108px;
+}
+
+/* -------------------------- Favoritos y buscador --------------------------- */
+
+.store-card-wrap {
+  position: relative;
+}
+
+.fav-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--muted);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.fav-toggle.is-on {
+  color: var(--brand-red);
+  border-color: rgba(225, 29, 46, 0.35);
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--muted);
+}
+
+.search-box input {
+  flex: 1 1 auto;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.search-block {
+  margin-top: 18px;
+}
+
+.search-results {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.search-row div {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------ Cuenta cliente ----------------------------- */
+
+.account-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--brand-orange-soft);
+  color: var(--brand-orange);
+}
+
+.account-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ------------------- Motorizado asignado (panel del dueño) ------------------ */
+
+.courier-live {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.courier-live-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.courier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+}
+
+.courier-badge b {
+  font-size: 0.95rem;
+}
+
+.map.is-static,
+.map.is-static .map-pin {
+  cursor: default;
+}

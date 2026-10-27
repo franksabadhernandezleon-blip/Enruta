@@ -27,4 +27,7 @@ export const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:admin@enruta.ap
 
 export const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
 
+// Minutos que debe esperar la tienda antes de poder liberar/cambiar al motorizado por demora.
+export const courierWaitMinutes = Number(process.env.COURIER_WAIT_MINUTES || 10);
+
 export const MAX_WEIGHT_FALLBACK_KG = 20;

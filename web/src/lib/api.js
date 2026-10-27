@@ -74,6 +74,7 @@ export const api = {
   testPush: () => request('/auth/push/test', { method: 'POST' }),
   uploadImage,
 
+  search: (q) => request(`/search?q=${encodeURIComponent(q)}`),
   stores: () => request('/stores'),
   store: (slug) => request(`/stores/${slug}`),
   quote: (payload) => request('/quote', { method: 'POST', body: payload }),
@@ -90,6 +91,8 @@ export const api = {
     orders: () => request('/owner/orders'),
     release: (orderId, pin) =>
       request(`/owner/orders/${orderId}/release`, { method: 'POST', body: { pin } }),
+    releaseCourier: (orderId) =>
+      request(`/owner/orders/${orderId}/release-courier`, { method: 'POST', body: {} }),
     stats: () => request('/owner/stats'),
   },
 
@@ -106,6 +109,7 @@ export const api = {
         body: { pin, offline: Boolean(isOffline) },
       }),
     deliver: (id, code) => request(`/courier/orders/${id}/deliver`, { method: 'POST', body: { code } }),
+    shareLocation: (payload) => request('/courier/location', { method: 'POST', body: payload }),
     sos: (payload) => request('/courier/sos', { method: 'POST', body: payload }),
     pins: () => request('/courier/pins'),
     wallet: () => request('/courier/wallet'),

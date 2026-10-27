@@ -56,6 +56,39 @@ volumen. Sin ese paso, `npm ci` aborta por lockfile desincronizado y la API qued
   (muestra el aviso de configuración en su lugar). El login por correo/contraseña funciona igual; para
   activar Google hay que definir `GOOGLE_CLIENT_ID` en los secretos de la app.
 
+## Navegación del cliente
+
+- **Barra inferior fija de 5 pestañas** (`web/src/components/ClientTabBar.jsx`): Inicio (`/`),
+  Pedidos (`/pedidos`), Buscar (`/buscar`), Favoritos (`/favoritos`), Cuenta (`/cuenta`). Se oculta
+  en `/login` y en los paneles (`/tuteteno`, `/mitienda`, `/repartidor`). El contenido del cliente
+  reserva espacio con `.client-shell .page { padding-bottom }` para que nada quede tapado.
+- **Buscar** usa `GET /api/search?q=` (tiendas + productos, público). **Favoritos** vive en
+  `localStorage` (`web/src/lib/favorites.js`), no en la base de datos: funciona sin señal.
+
+## Flujo del pedido: radar, PIN y reasignación
+
+- **Radar sin PIN.** `GET /api/courier/orders/ready` lista los pedidos **sin motorizado** en estado
+  `pending`, `picking` o `ready`: aparecen apenas la tienda recibe el pedido, con el itinerario
+  completo (dirección y teléfono de cada tienda, dirección del cliente, paradas extra, distancia y
+  ganancia). `POST /api/courier/orders/:id/accept` bloquea el pedido a nombre del motorizado
+  (atómico: el primero gana) y avisa a la tienda.
+- **PIN de retiro (4 dígitos).** Lo genera el cliente con el pedido; el motorizado se lo dicta a la
+  tienda y **el dueño lo ingresa en `/mitienda`** (`POST /api/owner/orders/:id/release`). El
+  motorizado también puede validarlo él mismo (con cola offline en IndexedDB) si no hay señal.
+- **Código de entrega (4 dígitos).** Lo ve el cliente en `/pedido/:code`; cierra el pedido en
+  `/repartidor` (`POST /api/courier/orders/:id/deliver`) y acredita la comisión en la billetera.
+- **Liberar / cambiar conductor por demora.** `POST /api/owner/orders/:id/release-courier` solo se
+  habilita cuando pasaron `COURIER_WAIT_MINUTES` (10 por defecto) desde `accepted_at` y la parada de
+  esa tienda sigue sin liberar; devuelve el pedido al radar (`status = 'ready'`, motorizado en NULL).
+  `GET /api/owner/orders` entrega `release` (con `canRelease`, `availableAt`, `remainingSeconds`).
+- **Ubicación en vivo.** Con ruta activa el teléfono del motorizado hace `POST /api/courier/location`
+  (cada ~20 s vía `watchPosition`) y la última posición queda en la tabla `courier_locations`. El
+  dueño la recibe en `GET /api/owner/orders` como `courierLocation` y la dibuja con `MapPicker`
+  en modo `readOnly` sobre la tienda.
+- **Billetera del motorizado.** La consulta de totales de `GET /api/courier/wallet` **necesita el
+  `FROM wallet_entries WHERE courier_id = $1`**: sin él Postgres fallaba con 500 y, como el panel
+  carga todo con un `Promise.all`, el Radar quedaba vacío aunque la API devolviera pedidos.
+
 ## Modo preview (Base44)
 
 Con `BASE44_PREVIEW_MODE=1` el servidor de Vite agrega el host del proxy a `allowedHosts`; sin esa

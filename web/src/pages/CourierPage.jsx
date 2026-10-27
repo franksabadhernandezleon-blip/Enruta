@@ -54,6 +54,8 @@ export default function CourierPage() {
     [mine],
   );
 
+  const activeId = active?.id || '';
+
   const load = useCallback(async () => {
     try {
       const [readyData, mineData, walletData] = await Promise.all([
@@ -99,6 +101,29 @@ export default function CourierPage() {
       window.removeEventListener('offline', goOffline);
     };
   }, [load]);
+
+  // Mientras hay ruta activa compartimos la posición con la tienda (mapa en vivo del dueño).
+  useEffect(() => {
+    if (!activeId || typeof navigator === 'undefined' || !navigator.geolocation) return undefined;
+    let lastSent = 0;
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const now = Date.now();
+        if (now - lastSent < 20000) return;
+        lastSent = now;
+        api.courier
+          .shareLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            orderId: activeId,
+          })
+          .catch(() => {});
+      },
+      () => {},
+      { maximumAge: 15000, timeout: 10000 },
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [activeId]);
 
   const accept = async (order) => {
     setBusyOrder(order.id);
@@ -274,7 +299,10 @@ export default function CourierPage() {
 
         {tab === 'radar' && (
           <div className="admin-grid">
-            <Section title="Pedidos listos" subtitle="Itinerario completo antes de aceptar: se bloquea al tomarlo">
+            <Section
+              title="Radar de pedidos"
+              subtitle="Aparecen apenas la tienda recibe el pedido, sin PIN previo. Revisa el itinerario completo antes de aceptar."
+            >
               <ul className="admin-list">
                 {ready.map((order) => (
                   <li key={order.id} className="is-stacked">
@@ -297,12 +325,16 @@ export default function CourierPage() {
                       </button>
                     </div>
                     <ol className="route-steps">
-                      {order.stops.map((stop) => (
+                      {order.stops.map((stop, index) => (
                         <li key={stop.id}>
                           <span className="route-index">{stop.seq}</span>
                           <div>
-                            <strong>{stop.storeName}</strong>
-                            <span className="muted">{stop.storeAddress}</span>
+                            <strong>
+                              {index === 0 ? 'Retiro en ' : 'Parada extra en '}
+                              {stop.storeName}
+                            </strong>
+                            <span className="muted">{stop.storeAddress || 'Dirección por confirmar'}</span>
+                            {stop.storePhone && <span className="muted small">Local: {stop.storePhone}</span>}
                           </div>
                         </li>
                       ))}
@@ -311,9 +343,9 @@ export default function CourierPage() {
                           <Navigation size={13} aria-hidden="true" />
                         </span>
                         <div>
-                          <strong>Entrega</strong>
+                          <strong>Destino: {order.customerName || 'cliente'}</strong>
                           <span className="muted">
-                            {order.address} ·{' '}
+                            {order.address || 'Dirección por confirmar'} ·{' '}
                             <a href={mapsLink({ lat: order.lat, lng: order.lng })} target="_blank" rel="noreferrer">
                               navegar
                             </a>
@@ -323,7 +355,7 @@ export default function CourierPage() {
                     </ol>
                   </li>
                 ))}
-                {!ready.length && <li className="muted">No hay pedidos listos en este momento.</li>}
+                {!ready.length && <li className="muted">El radar está vacío: aquí aparece el pedido apenas la tienda lo recibe.</li>}
               </ul>
             </Section>
           </div>
@@ -433,7 +465,10 @@ export default function CourierPage() {
                   </button>
                 </Section>
 
-                <Section title="Mi ubicación en ruta" subtitle="El mapa también se usa para la entrega final">
+                <Section
+                  title="Mi ubicación en ruta"
+                  subtitle="Con ruta activa compartes tu posición con la tienda cada 20 s; también sirve para la entrega final"
+                >
                   <MapPicker
                     point={{ lat: Number(active.lat), lng: Number(active.lng) }}
                     markers={active.stops.map((stop) => ({ id: stop.id, name: stop.storeName, lat: stop.lat, lng: stop.lng }))}

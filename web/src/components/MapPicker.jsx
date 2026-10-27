@@ -6,11 +6,19 @@ import { CARIPITO, haversineKm, pointFromClick, relativePosition } from '../lib/
  * Mapa interactivo local (sin servicios externos): dibuja el área de Caripito,
  * las paradas del pedido y un pin arrastrable para el punto de entrega.
  */
-export default function MapPicker({ point, onChange, markers = [], spanKm = 6, label = 'Punto de entrega' }) {
+export default function MapPicker({
+  point,
+  onChange,
+  markers = [],
+  spanKm = 6,
+  label = 'Punto de entrega',
+  readOnly = false,
+}) {
   const ref = useRef(null);
   const [dragging, setDragging] = useState(false);
 
   const move = (event) => {
+    if (readOnly) return;
     const element = ref.current;
     if (!element) return;
     onChange(pointFromClick(event, element, spanKm));
@@ -23,10 +31,10 @@ export default function MapPicker({ point, onChange, markers = [], spanKm = 6, l
     <div className="map-wrap">
       <div
         ref={ref}
-        className={`map${dragging ? ' is-dragging' : ''}`}
+        className={`map${dragging ? ' is-dragging' : ''}${readOnly ? ' is-static' : ''}`}
         style={{ aspectRatio: '16 / 10' }}
         role="application"
-        aria-label={`${label}: toca o arrastra el pin`}
+        aria-label={readOnly ? `${label}: mapa en vivo` : `${label}: toca o arrastra el pin`}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture?.(event.pointerId);
           setDragging(true);

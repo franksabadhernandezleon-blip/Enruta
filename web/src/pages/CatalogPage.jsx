@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, Store as StoreIcon } from 'lucide-react';
+import { Clock, Heart, Store as StoreIcon } from 'lucide-react';
 import ClientHeader from '../components/ClientHeader.jsx';
 import { Alert, Spinner, Stars } from '../components/ui.jsx';
 import { useConfig } from '../lib/config.jsx';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
+import { useFavorites } from '../lib/favorites.js';
 
 export default function CatalogPage() {
   const [stores, setStores] = useState([]);
@@ -13,6 +14,7 @@ export default function CatalogPage() {
   const [error, setError] = useState('');
   const { settings } = useConfig();
   const { user } = useAuth();
+  const { isFavorite, toggle } = useFavorites();
 
   useEffect(() => {
     let active = true;
@@ -69,7 +71,7 @@ export default function CatalogPage() {
         {status === 'ready' && (
           <ul className="store-grid">
             {stores.map((store) => (
-              <li key={store.id}>
+              <li key={store.id} className="store-card-wrap">
                 <Link to={`/tienda/${store.slug}`} className={`store-card${store.open ? '' : ' is-closed'}`}>
                   <div className="store-banner">
                     {store.bannerUrl ? (
@@ -95,6 +97,19 @@ export default function CatalogPage() {
                     </div>
                   </div>
                 </Link>
+                <button
+                  type="button"
+                  className={`fav-toggle${isFavorite(store.id) ? ' is-on' : ''}`}
+                  onClick={() => toggle(store.id)}
+                  aria-pressed={isFavorite(store.id)}
+                  aria-label={
+                    isFavorite(store.id)
+                      ? `Quitar ${store.name} de favoritos`
+                      : `Guardar ${store.name} en favoritos`
+                  }
+                >
+                  <Heart size={16} fill={isFavorite(store.id) ? 'currentColor' : 'none'} aria-hidden="true" />
+                </button>
               </li>
             ))}
           </ul>

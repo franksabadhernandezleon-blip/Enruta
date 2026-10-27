@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BellRing, MapPin, Plus, Save, Store as StoreIcon, Trash2, Volume2 } from 'lucide-react';
+import { BellRing, Bike, MapPin, Phone, Plus, RefreshCw, Save, Store as StoreIcon, Trash2, Volume2 } from 'lucide-react';
 import MapPicker from '../components/MapPicker.jsx';
 import PhotoInput from '../components/PhotoInput.jsx';
 import { Alert, Field, Modal, Section, Spinner, StatusPill, Toggle } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { useConfig } from '../lib/config.jsx';
-import { formatDate, formatUsd, statusLabel } from '../lib/format.js';
+import { formatDate, formatKm, formatUsd, statusLabel } from '../lib/format.js';
+import { haversineKm } from '../lib/geo.js';
 import { enablePush, pushSupported } from '../lib/push.js';
 
 const EMPTY_PRODUCT = {
@@ -36,6 +37,8 @@ export default function StoreAdminPage() {
   const [editor, setEditor] = useState({ open: false, product: null });
   const [draft, setDraft] = useState(EMPTY_PRODUCT);
   const [pins, setPins] = useState({});
+  const [busyOrder, setBusyOrder] = useState('');
+  const [clock, setClock] = useState(Date.now());
 
   const load = useCallback(async () => {
     try {
@@ -60,6 +63,41 @@ export default function StoreAdminPage() {
     const timer = setInterval(load, 20000);
     return () => clearInterval(timer);
   }, [load]);
+
+  // Reloj corto: mantiene al día la cuenta atrás del botón por demora.
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const releaseCourier = async (order) => {
+    setError('');
+    setMessage('');
+    setBusyOrder(order.id);
+    try {
+      await api.owner.releaseCourier(order.id);
+      setMessage(`Pedido ${order.code} liberado: vuelve al radar para que otro motorizado lo tome.`);
+      await load();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusyOrder('');
+    }
+  };
+
+  // Estado del botón por demora: espera desde la asignación, no desde la creación.
+  const courierWaitText = (order) => {
+    const release = order.release;
+    if (!release?.courierAssigned) return '';
+    if (release.arrived) return 'El motorizado ya retiró tu pedido: la ruta va en curso.';
+    const availableAt = release.availableAt ? Date.parse(release.availableAt) : null;
+    if (!availableAt) return '';
+    const remaining = Math.max(0, availableAt - clock);
+    if (remaining > 0) {
+      return `Si no llega, podrás liberarlo en ${Math.ceil(remaining / 60000)} min (${release.waitMinutes} min desde la asignación).`;
+    }
+    return `Pasaron los ${release.waitMinutes} min sin que llegue: puedes liberarlo y buscar otro motorizado.`;
+  };
 
   const saveStore = async () => {
     setError('');
@@ -303,6 +341,73 @@ export default function StoreAdminPage() {
                       </div>
                     )}
                   </div>
+
+                  {order.courier && (
+                    <div className="courier-live">
+                      <div className="courier-live-head">
+                        <span className="courier-badge">
+                          <Bike size={15} aria-hidden="true" />
+                          <b>{order.courier.name}</b>
+                          <span className="muted small">asignado · va en camino</span>
+                        </span>
+                        {order.courier.phone && (
+                          <a className="btn btn-ghost btn-sm" href={`tel:${order.courier.phone}`}>
+                            <Phone size={14} aria-hidden="true" />
+                            Llamar
+                          </a>
+                        )}
+                      </div>
+
+                      {order.courierLocation ? (
+                        <>
+                          <MapPicker
+                            readOnly
+                            spanKm={4}
+                            point={{ lat: order.courierLocation.lat, lng: order.courierLocation.lng }}
+                            markers={
+                              store
+                                ? [
+                                    {
+                                      id: 'store',
+                                      name: 'Tu tienda',
+                                      lat: Number(store.lat),
+                                      lng: Number(store.lng),
+                                    },
+                                  ]
+                                : []
+                            }
+                            label="Motorizado"
+                          />
+                          <p className="muted small">
+                            A{' '}
+                            {formatKm(
+                              haversineKm(order.courierLocation, {
+                                lat: Number(store?.lat),
+                                lng: Number(store?.lng),
+                              }),
+                            )}{' '}
+                            de tu local · actualizado {formatDate(order.courierLocation.updatedAt)}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="muted small">Esperando la ubicación del motorizado…</p>
+                      )}
+
+                      <div className="page-actions">
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => releaseCourier(order)}
+                          disabled={!order.release?.canRelease || busyOrder === order.id}
+                        >
+                          <RefreshCw size={14} aria-hidden="true" />
+                          Liberar / Cambiar conductor por demora
+                        </button>
+                      </div>
+                      <p className="muted small">{courierWaitText(order)}</p>
+                    </div>
+                  )}
+
                   <ul className="cart-lines is-compact">
                     {order.items.map((item) => (
                       <li key={item.name}>

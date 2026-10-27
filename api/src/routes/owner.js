@@ -1,7 +1,13 @@
 import { Router } from 'express';
 import { httpError, isAdmin, requireAuth, requireRole } from '../auth.js';
 import { query } from '../db.js';
-import { loadOrder, releaseStop } from '../orders.js';
+import {
+  courierReleaseState,
+  loadCourierLocation,
+  loadOrder,
+  releaseCourierByDelay,
+  releaseStop,
+} from '../orders.js';
 
 const router = Router();
 
@@ -240,6 +246,12 @@ router.get('/orders', requireStore, async (req, res, next) => {
         createdAt: row.created_at,
         address: row.address,
         notes: row.notes,
+        courier: full.courier_id
+          ? { id: full.courier_id, name: full.courier_name, phone: full.courier_phone }
+          : null,
+        acceptedAt: full.accepted_at,
+        courierLocation: await loadCourierLocation(full.courier_id),
+        release: courierReleaseState(full, row.stop_id),
         stop: {
           id: row.stop_id,
           seq: row.seq,
@@ -277,6 +289,20 @@ router.post('/orders/:orderId/release', requireStore, async (req, res, next) => 
       by: 'store',
     });
     res.json({ ok: true, status: order.status, stops: order.stops.map((stop) => ({ id: stop.id, released: stop.released })) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Liberar / cambiar conductor por demora: reabre el pedido al Radar tras la espera.
+router.post('/orders/:orderId/release-courier', requireStore, async (req, res, next) => {
+  try {
+    const order = await releaseCourierByDelay({
+      orderId: req.params.orderId,
+      storeId: req.store.id,
+      actor: req.user.email,
+    });
+    res.json({ ok: true, status: order.status, courier: null });
   } catch (error) {
     next(error);
   }

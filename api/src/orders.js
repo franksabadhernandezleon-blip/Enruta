@@ -1,6 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { httpError } from './auth.js';
 import { query } from './db.js';
+import { courierWaitMinutes } from './config.js';
 import { buildQuote, splitCommission } from './delivery.js';
 import { notifyAdmins, notifyCouriers, notifyEmail } from './push.js';
 import { getSettings } from './settings.js';
@@ -193,6 +194,16 @@ export const createOrder = async ({ cart, destination, customer, paymentMethod, 
     orderCode: code,
   });
 
+  // El pedido entra al Radar de los motorizados de inmediato, sin PIN ni liberación previa.
+  await notifyCouriers({
+    title: `Nuevo pedido ${code} en el radar`,
+    body: `${built.stops.length} parada(s) · ${Number(built.quote.distanceKm).toFixed(1)} km · delivery ${(
+      built.deliveryCents / 100
+    ).toFixed(2)} USD`,
+    url: '/repartidor',
+    tag: `radar-${order.id}`,
+  }).catch(() => 0);
+
   const adminEmails = (built.settings.admin_emails || []).map((email) => String(email).toLowerCase());
   await notifyAdmins(adminEmails, {
     title: `Nuevo pedido ${code}`,
@@ -335,17 +346,136 @@ export const releaseStop = async ({ orderId, stopId, pin, by = 'store' }) => {
 };
 
 // Anti-choque: el pedido se bloquea para el primero que acepta.
+// Se puede aceptar desde que la tienda recibe el pedido (pending/picking): el PIN de
+// retiro se valida después, en la tienda, y no bloquea el Radar.
 export const acceptOrder = async ({ orderId, courier }) => {
   const { rows } = await query(
     `UPDATE orders SET courier_id = $2, courier_name = $3, courier_phone = $4,
                        status = 'accepted', accepted_at = now(), updated_at = now()
-      WHERE id = $1 AND courier_id IS NULL AND status = 'ready'
+      WHERE id = $1 AND courier_id IS NULL AND status IN ('pending','picking','ready')
       RETURNING id`,
     [orderId, courier.id, courier.name || courier.email, courier.phone || null],
   );
 
   if (!rows[0]) throw httpError(409, 'Ese pedido ya no está disponible: otro motorizado lo tomó.');
-  return loadOrder({ id: orderId });
+
+  const order = await loadOrder({ id: orderId });
+  await crm('accepted', `Pedido ${order.code} aceptado por ${order.courier_name}`, { orderCode: order.code });
+  await notifyStores(order, {
+    title: `Motorizado asignado en ${order.code}`,
+    body: `${order.courier_name} va en camino a tu tienda. Dicta el PIN de retiro cuando llegue.`,
+    url: '/mitienda',
+    tag: `courier-${order.id}`,
+  }).catch(() => 0);
+
+  return order;
+};
+
+const notifyStores = async (order, payload) => {
+  const storeIds = [...new Set((order.stops || []).map((stop) => stop.store_id).filter(Boolean))];
+  if (!storeIds.length) return 0;
+  const { rows } = await query(
+    'SELECT owner_email FROM stores WHERE id = ANY($1::uuid[]) AND owner_email IS NOT NULL',
+    [storeIds],
+  );
+  let sent = 0;
+  for (const row of rows) {
+    sent += await notifyEmail(row.owner_email, payload).catch(() => 0);
+  }
+  return sent;
+};
+
+/**
+ * Estado de la liberación manual del dueño: se habilita cuando pasan los minutos de
+ * espera desde la asignación y el motorizado todavía no retiró el pedido en esa tienda.
+ */
+export const courierReleaseState = (order, stopId = null) => {
+  const stops = order.stops || [];
+  const arrived = stopId
+    ? stops.some((stop) => stop.id === stopId && stop.released)
+    : stops.length > 0 && stops.every((stop) => stop.released);
+  const assignedAt = order.accepted_at ? new Date(order.accepted_at).getTime() : null;
+  const availableAt = assignedAt ? assignedAt + courierWaitMinutes * 60000 : null;
+  const remainingMs = availableAt ? availableAt - Date.now() : null;
+
+  return {
+    courierAssigned: Boolean(order.courier_id),
+    arrived,
+    waitMinutes: courierWaitMinutes,
+    availableAt: availableAt ? new Date(availableAt).toISOString() : null,
+    remainingSeconds: remainingMs === null ? null : Math.max(0, Math.ceil(remainingMs / 1000)),
+    canRelease:
+      Boolean(order.courier_id) &&
+      !arrived &&
+      !['delivered', 'cancelled'].includes(order.status) &&
+      remainingMs !== null &&
+      remainingMs <= 0,
+  };
+};
+
+/** Reasignación manual por demora: el pedido vuelve al Radar para otro motorizado. */
+export const releaseCourierByDelay = async ({ orderId, storeId = null, actor = 'store' }) => {
+  const order = await loadOrder({ id: orderId });
+  if (!order) throw httpError(404, 'Ese pedido no existe.');
+  if (['delivered', 'cancelled'].includes(order.status)) throw httpError(409, 'Ese pedido ya está cerrado.');
+  if (!order.courier_id) throw httpError(409, 'Ese pedido no tiene motorizado asignado.');
+  if (storeId && !order.stops.some((stop) => stop.store_id === storeId)) {
+    throw httpError(403, 'Ese pedido no incluye tu tienda.');
+  }
+
+  const state = courierReleaseState(order, storeId);
+  if (state.arrived) throw httpError(409, 'Ese motorizado ya retiró el pedido: no hay nada que liberar.');
+  if (!state.canRelease) {
+    const minutes = state.remainingSeconds ? Math.ceil(state.remainingSeconds / 60) : courierWaitMinutes;
+    throw httpError(409, `Todavía faltan ${minutes} min de espera desde la asignación.`);
+  }
+
+  await query(
+    `UPDATE orders SET courier_id = NULL, courier_name = NULL, courier_phone = NULL,
+                       accepted_at = NULL, checklist = NULL, status = 'ready', updated_at = now()
+      WHERE id = $1`,
+    [order.id],
+  );
+
+  await crm('delay', `Pedido ${order.code} liberado por demora del motorizado (${actor})`, {
+    orderCode: order.code,
+  });
+  await notifyCouriers({
+    title: `Pedido ${order.code} liberado de nuevo`,
+    body: 'La tienda lo liberó por demora del motorizado. Tómalo si te conviene.',
+    url: '/repartidor',
+    tag: `reopen-${order.id}`,
+  }).catch(() => 0);
+
+  return loadOrder({ id: order.id });
+};
+
+/** Última posición conocida del motorizado, para el mapa en vivo del dueño. */
+export const saveCourierLocation = async ({ courier, lat, lng, orderId = null }) => {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw httpError(400, 'Ubicación inválida.');
+  }
+
+  const { rows } = await query(
+    `INSERT INTO courier_locations (courier_id, lat, lng, order_id, updated_at)
+     VALUES ($1,$2,$3,$4, now())
+     ON CONFLICT (courier_id) DO UPDATE
+        SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, order_id = EXCLUDED.order_id, updated_at = now()
+     RETURNING updated_at`,
+    [courier.id, latitude, longitude, orderId],
+  );
+  return { ok: true, updatedAt: rows[0].updated_at };
+};
+
+export const loadCourierLocation = async (courierId) => {
+  if (!courierId) return null;
+  const { rows } = await query('SELECT lat, lng, updated_at FROM courier_locations WHERE courier_id = $1', [
+    courierId,
+  ]);
+  if (!rows[0]) return null;
+  return { lat: Number(rows[0].lat), lng: Number(rows[0].lng), updatedAt: rows[0].updated_at };
 };
 
 export const setChecklist = async ({ orderId, items }) => {

@@ -196,6 +196,15 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Última posición conocida del motorizado en ruta: alimenta el mapa en vivo del dueño.
+CREATE TABLE IF NOT EXISTS courier_locations (
+  courier_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  lat        double precision NOT NULL,
+  lng        double precision NOT NULL,
+  order_id   uuid REFERENCES orders(id) ON DELETE SET NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS orders_status_idx ON orders (status);
 CREATE INDEX IF NOT EXISTS order_items_order_idx ON order_items (order_id);
 CREATE INDEX IF NOT EXISTS order_stops_order_idx ON order_stops (order_id);

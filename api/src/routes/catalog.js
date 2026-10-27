@@ -34,6 +34,51 @@ router.get('/config', async (req, res, next) => {
   }
 });
 
+// Público: buscador de la pestaña "Buscar" (tiendas y productos).
+router.get('/search', async (req, res, next) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ query: q, stores: [], products: [] });
+    const like = `%${q}%`;
+
+    const [storeRows, productRows] = await Promise.all([
+      query(
+        `SELECT s.*, (SELECT count(*) FROM products p WHERE p.store_id = s.id AND p.active) AS product_count
+           FROM stores s
+          WHERE s.name ILIKE $1 OR s.description ILIKE $1
+          ORDER BY s.open DESC, s.rating DESC, s.name ASC LIMIT 12`,
+        [like],
+      ),
+      query(
+        `SELECT p.id, p.name, p.description, p.price_cents, p.image_url, p.stock,
+                s.name AS store_name, s.slug AS store_slug, s.open AS store_open
+           FROM products p JOIN stores s ON s.id = p.store_id
+          WHERE p.active AND (p.name ILIKE $1 OR p.description ILIKE $1)
+          ORDER BY p.name ASC LIMIT 30`,
+        [like],
+      ),
+    ]);
+
+    res.json({
+      query: q,
+      stores: storeRows.rows.map(storeCard),
+      products: productRows.rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        priceCents: row.price_cents,
+        imageUrl: row.image_url,
+        stock: row.stock,
+        storeName: row.store_name,
+        storeSlug: row.store_slug,
+        storeOpen: row.store_open,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/stores', async (req, res, next) => {
   try {
     const { rows } = await query(
