@@ -32,7 +32,8 @@ const loadGis = () => {
 
 export default function LoginPage() {
   const { login, register, loginWithGoogle, user, isAdmin, isOwner, isCourier } = useAuth();
-  const { googleClientId } = useConfig();
+  const { config } = useConfig();
+  const googleClientId = config.googleClientId;
   const navigate = useNavigate();
   const buttonRef = useRef(null);
 
@@ -191,7 +192,7 @@ export default function LoginPage() {
           </form>
 
           <div className="google-block">
-            {googleClientId} ? (
+            {googleClientId ? (
               <div ref={buttonRef} />
             ) : (
               <p className="muted small">
