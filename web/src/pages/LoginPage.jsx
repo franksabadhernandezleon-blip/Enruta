@@ -191,7 +191,7 @@ export default function LoginPage() {
           </form>
 
           <div className="google-block">
-            {googleClientId ? (
+            {googleClientId} ? (
               <div ref={buttonRef} />
             ) : (
               <p className="muted small">
