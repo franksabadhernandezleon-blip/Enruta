@@ -19,7 +19,7 @@ const FALLBACK = {
     payment: {},
   },
   vapidPublicKey: null,
-  googleClientId: null,
+  googleClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
   pushReady: false,
 };
 
