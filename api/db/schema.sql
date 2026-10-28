@@ -1,0 +1,210 @@
+-- ENRUTA (Caripito) — esquema idempotente.
+-- Se aplica en cada arranque: no borra datos existentes.
+
+-- Fila única de configuración: tasa BCV, motor de delivery, comisiones y ajustes.
+CREATE TABLE IF NOT EXISTS settings (
+  id                       integer PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  bcv_rate                 numeric(14,2) NOT NULL DEFAULT 0,
+  bcv_updated_at           timestamptz,
+  base_fee_cents           integer NOT NULL DEFAULT 150,
+  per_km_cents             integer NOT NULL DEFAULT 60,
+  included_km              numeric(6,2) NOT NULL DEFAULT 2,
+  extra_stop_cents         integer NOT NULL DEFAULT 100,
+  charge_courier_store_leg boolean NOT NULL DEFAULT false,
+  dynamic_fee_enabled      boolean NOT NULL DEFAULT false,
+  dynamic_fee_cents        integer NOT NULL DEFAULT 100,
+  courier_commission_pct   numeric(5,2) NOT NULL DEFAULT 80,
+  platform_commission_pct  numeric(5,2) NOT NULL DEFAULT 20,
+  personal_courier_mode    boolean NOT NULL DEFAULT false,
+  free_delivery            boolean NOT NULL DEFAULT false,
+  max_weight_kg            numeric(6,2) NOT NULL DEFAULT 20,
+  whatsapp_number          text NOT NULL DEFAULT '584121590242',
+  whatsapp_message         text NOT NULL DEFAULT '¡Hola ENRUTA! Quiero hacer un pedido.',
+  payment                  jsonb NOT NULL DEFAULT '{}'::jsonb,
+  admin_emails             jsonb NOT NULL DEFAULT '["franksabadhernandezleon@gmail.com"]'::jsonb,
+  updated_at               timestamptz NOT NULL DEFAULT now()
+);
+
+-- Clientes, dueños de tienda, motorizados y admin.
+CREATE TABLE IF NOT EXISTS users (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email             text NOT NULL UNIQUE,
+  password_hash     text,
+  google_id         text,
+  name              text NOT NULL DEFAULT '',
+  phone             text,
+  role              text NOT NULL DEFAULT 'customer',
+  banned_until      timestamptz,
+  banned_permanent  boolean NOT NULL DEFAULT false,
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS stores (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id    uuid REFERENCES users(id) ON DELETE SET NULL,
+  owner_email text,
+  name        text NOT NULL,
+  slug        text NOT NULL UNIQUE,
+  description text NOT NULL DEFAULT '',
+  logo_url    text,
+  banner_url  text,
+  open        boolean NOT NULL DEFAULT true,
+  address     text NOT NULL DEFAULT '',
+  lat         double precision,
+  lng         double precision,
+  phone       text,
+  rating      numeric(2,1) NOT NULL DEFAULT 5.0,
+  schedule    jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS products (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  store_id              uuid NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  name                  text NOT NULL,
+  description           text NOT NULL DEFAULT '',
+  price_cents           integer NOT NULL DEFAULT 0 CHECK (price_cents >= 0),
+  stock                 integer NOT NULL DEFAULT 0,
+  weight_kg             numeric(6,2) NOT NULL DEFAULT 1,
+  image_url             text,
+  requires_confirmation boolean NOT NULL DEFAULT false,
+  position              integer NOT NULL DEFAULT 1,
+  active                boolean NOT NULL DEFAULT true,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS products_store_id_idx ON products (store_id);
+
+CREATE SEQUENCE IF NOT EXISTS order_code_seq START 1001;
+
+-- Pedido: guarda la tasa BCV congelada del momento de la compra.
+CREATE TABLE IF NOT EXISTS orders (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  code                      text NOT NULL UNIQUE,
+  customer_id               uuid REFERENCES users(id) ON DELETE SET NULL,
+  customer_name             text NOT NULL DEFAULT '',
+  customer_phone            text NOT NULL DEFAULT '',
+  address                   text NOT NULL DEFAULT '',
+  lat                       double precision,
+  lng                       double precision,
+  pickup_pin                text NOT NULL,
+  delivery_code             text NOT NULL,
+  subtotal_cents            integer NOT NULL DEFAULT 0,
+  delivery_cents            integer NOT NULL DEFAULT 0,
+  total_cents               integer NOT NULL DEFAULT 0,
+  bcv_rate                  numeric(14,2) NOT NULL DEFAULT 0,
+  total_bs                  numeric(16,2) NOT NULL DEFAULT 0,
+  distance_km               numeric(8,2) NOT NULL DEFAULT 0,
+  extra_stops               integer NOT NULL DEFAULT 0,
+  dynamic_fee_applied       boolean NOT NULL DEFAULT false,
+  max_weight_kg             numeric(6,2) NOT NULL DEFAULT 20,
+  payment_method            text NOT NULL DEFAULT '',
+  payment_ref               text NOT NULL DEFAULT '',
+  notes                     text NOT NULL DEFAULT '',
+  status                    text NOT NULL DEFAULT 'pending',
+  courier_id                uuid REFERENCES users(id) ON DELETE SET NULL,
+  courier_name              text,
+  courier_phone             text,
+  courier_commission_cents  integer NOT NULL DEFAULT 0,
+  platform_commission_cents integer NOT NULL DEFAULT 0,
+  checklist                 jsonb,
+  sos                       boolean NOT NULL DEFAULT false,
+  accepted_at               timestamptz,
+  delivered_at              timestamptz,
+  cancelled_at              timestamptz,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS order_items (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id    uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_id  uuid REFERENCES products(id) ON DELETE SET NULL,
+  store_id    uuid REFERENCES stores(id) ON DELETE SET NULL,
+  store_name  text NOT NULL DEFAULT '',
+  name        text NOT NULL DEFAULT '',
+  qty         integer NOT NULL DEFAULT 1,
+  price_cents integer NOT NULL DEFAULT 0
+);
+
+-- Una parada por tienda: cada tienda libera su parte con el PIN de retiro.
+CREATE TABLE IF NOT EXISTS order_stops (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id        uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  store_id        uuid REFERENCES stores(id) ON DELETE SET NULL,
+  store_name      text NOT NULL DEFAULT '',
+  store_address   text NOT NULL DEFAULT '',
+  store_phone     text,
+  lat             double precision,
+  lng             double precision,
+  seq             integer NOT NULL DEFAULT 1,
+  released        boolean NOT NULL DEFAULT false,
+  released_at     timestamptz,
+  released_by     text,
+  extra_fee_cents integer NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS crm_events (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email      text,
+  order_code text,
+  kind       text NOT NULL,
+  note       text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sos_alerts (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  courier_id    uuid REFERENCES users(id) ON DELETE SET NULL,
+  courier_name  text NOT NULL DEFAULT '',
+  courier_phone text,
+  order_id      uuid REFERENCES orders(id) ON DELETE SET NULL,
+  order_code    text,
+  lat           double precision,
+  lng           double precision,
+  status        text NOT NULL DEFAULT 'open',
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS wallet_entries (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  courier_id   uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  order_code   text,
+  amount_cents integer NOT NULL DEFAULT 0,
+  kind         text NOT NULL DEFAULT 'earning',
+  note         text NOT NULL DEFAULT '',
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS payout_requests (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  courier_id   uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount_cents integer NOT NULL DEFAULT 0,
+  status       text NOT NULL DEFAULT 'requested',
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  paid_at      timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  endpoint   text NOT NULL UNIQUE,
+  keys       jsonb NOT NULL,
+  user_id    uuid REFERENCES users(id) ON DELETE CASCADE,
+  email      text,
+  role       text NOT NULL DEFAULT 'customer',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Última posición conocida del motorizado en ruta: alimenta el mapa en vivo del dueño.
+CREATE TABLE IF NOT EXISTS courier_locations (
+  courier_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  lat        double precision NOT NULL,
+  lng        double precision NOT NULL,
+  order_id   uuid REFERENCES orders(id) ON DELETE SET NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS orders_status_idx ON orders (status);
+CREATE INDEX IF NOT EXISTS order_items_order_idx ON order_items (order_id);
+CREATE INDEX IF NOT EXISTS order_stops_order_idx ON order_stops (order_id);
