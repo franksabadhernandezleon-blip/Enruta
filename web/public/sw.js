@@ -38,8 +38,13 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Navegación: red primero, cáscara cacheada si no hay señal.
+  // Excluir login y cuenta del Service Worker para no romper la navegación de autenticación
   if (request.mode === 'navigate') {
+    const path = url.pathname;
+    if (path === '/login' || path.startsWith('/login') || path === '/cuenta' || path.startsWith('/cuenta')) {
+      return;
+    }
+
     event.respondWith(
       fetch(request)
         .then((response) => {
@@ -52,7 +57,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Datos de la app: red primero (frescos), caché si el motorizado pierde señal.
+  // API: red primero.
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request)
@@ -77,7 +82,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // En desarrollo los módulos de Vite no se cachean (romperían el recargado en caliente).
+  // En desarrollo los módulos de Vite no se cachean
   if (isDevModule(url)) return;
 
   event.respondWith(
@@ -96,7 +101,7 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Web Push: suena y vibra en el dispositivo (admin, dueño y motorizado).
+// Web Push
 self.addEventListener('push', (event) => {
   let data = {};
   try {
