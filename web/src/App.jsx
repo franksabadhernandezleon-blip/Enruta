@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import ClientTabBar from './components/ClientTabBar.jsx';
 import { Spinner } from './components/ui.jsx';
 import { useAuth } from './lib/auth.jsx';
@@ -18,6 +18,8 @@ import StorePage from './pages/StorePage.jsx';
 // Rutas de rol: solo visibles/accesibles con el correo autorizado correspondiente.
 function Guard({ allow, children }) {
   const { ready, user } = useAuth();
+  const location = useLocation();
+
   if (!ready) {
     return (
       <p className="muted pad">
@@ -25,8 +27,15 @@ function Guard({ allow, children }) {
       </p>
     );
   }
-  if (!user) return <Navigate to="/login" replace />;
+
+  if (!user) {
+    return (
+      <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />
+    );
+  }
+
   if (!allow(user)) return <Navigate to="/" replace />;
+
   return children;
 }
 
@@ -37,13 +46,42 @@ export default function App() {
         <Route path="/" element={<CatalogPage />} />
         <Route path="/tienda/:slug" element={<StorePage />} />
         <Route path="/carrito" element={<CartPage />} />
-        <Route path="/checkout" element={<CheckoutPage />} />
-        <Route path="/pedido/:code" element={<OrderPage />} />
-        <Route path="/pedidos" element={<OrderPage />} />
+        <Route
+          path="/checkout"
+          element={
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+              <CheckoutPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/pedido/:code"
+          element={
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+              <OrderPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/pedidos"
+          element={
+            <Guard allow={(user) => ['customer', 'owner', 'admin'].includes(user.role)}>
+              <OrderPage />
+            </Guard>
+          }
+        />
         <Route path="/buscar" element={<SearchPage />} />
         <Route path="/favoritos" element={<FavoritesPage />} />
-        <Route path="/cuenta" element={<AccountPage />} />
+        <Route
+          path="/cuenta"
+          element={
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+              <AccountPage />
+            </Guard>
+          }
+        />
         <Route path="/login" element={<LoginPage />} />
+
         <Route
           path="/tuteteno"
           element={
@@ -68,10 +106,10 @@ export default function App() {
             </Guard>
           }
         />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
-      {/* Barra inferior fija: las 5 opciones del cliente, siempre encima del contenido. */}
       <ClientTabBar />
     </>
   );
