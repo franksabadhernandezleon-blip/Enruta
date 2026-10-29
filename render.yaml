@@ -59,3 +59,6 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
+      # Google Maps API key (Geocoding API, Directions API, Maps JavaScript API)
+      - key: VITE_GOOGLE_MAPS_API_KEY
+        sync: false

@@ -63,8 +63,13 @@ servicio web** que sirve la PWA compilada y la API Express: el cliente habla con
 
 Variables que Render pide al crear el Blueprint (se pueden dejar vacías y completar después en el
 dashboard): `ADMIN_EMAIL` (tu correo; esa cuenta nace admin), `VAPID_PUBLIC_KEY`,
-`VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (Web Push) y `GOOGLE_CLIENT_ID` (login con Google). `JWT_SECRET`
+`VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (Web Push), `GOOGLE_CLIENT_ID` (login con Google) y `VITE_GOOGLE_MAPS_API_KEY` (Google Maps). `JWT_SECRET`
 lo genera Render y `DATABASE_URL` sale de la base del Blueprint.
+
+**Seguridad de la clave de Google Maps (`VITE_GOOGLE_MAPS_API_KEY`):**
+En Google Cloud Console, restringe la clave de API por:
+1. **HTTP Referrers:** Solo el dominio de producción de Render.
+2. **Restricción de API:** Limitar el uso a las 3 APIs requeridas: **Geocoding API**, **Directions API** y **Maps JavaScript API**.
 
 Antes de abrirlo al público:
 

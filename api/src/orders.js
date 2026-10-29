@@ -113,7 +113,7 @@ export const quoteCart = async ({ cart = [], destination, dynamic = false }) => 
   };
 };
 
-export const createOrder = async ({ cart, destination, customer, paymentMethod, paymentRef, notes, dynamic, user }) => {
+export const createOrder = async ({ cart, destination, customer, paymentMethod, paymentRef, notes, dynamic, user, addressId, reference }) => {
   const built = await quoteCart({ cart, destination, dynamic });
 
   if (built.overWeight) {
@@ -133,8 +133,9 @@ export const createOrder = async ({ cart, destination, customer, paymentMethod, 
     `INSERT INTO orders (code, customer_id, customer_name, customer_phone, address, lat, lng,
                          pickup_pin, delivery_code, subtotal_cents, delivery_cents, total_cents,
                          bcv_rate, total_bs, distance_km, extra_stops, dynamic_fee_applied, max_weight_kg,
-                         payment_method, payment_ref, notes, courier_commission_cents, platform_commission_cents)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+                         payment_method, payment_ref, notes, courier_commission_cents, platform_commission_cents,
+                         address_id, reference)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
      RETURNING *`,
     [
       code,
@@ -160,6 +161,8 @@ export const createOrder = async ({ cart, destination, customer, paymentMethod, 
       String(notes || '').slice(0, 300),
       courierCents,
       platformCents,
+      addressId || customer?.addressId || null,
+      reference || customer?.reference || null,
     ],
   );
 
@@ -260,6 +263,8 @@ export const serializeOrder = (order, { view = 'customer' } = {}) => {
     customerName: order.customer_name,
     customerPhone: full ? order.customer_phone : undefined,
     address: order.address,
+    addressId: order.address_id,
+    reference: order.reference,
     lat: order.lat,
     lng: order.lng,
     deliveryCode: view === 'customer' || view === 'admin' ? order.delivery_code : undefined,
