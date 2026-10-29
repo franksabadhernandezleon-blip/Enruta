@@ -5,6 +5,7 @@ import multer from 'multer';
 import { port, uploadDir, webDistDir } from './config.js';
 import { requireAuth } from './auth.js';
 import { query } from './db.js';
+import addressesRoutes from './routes/addresses.js';
 import adminRoutes from './routes/admin.js';
 import authRoutes from './routes/auth.js';
 import catalogRoutes from './routes/catalog.js';
@@ -38,6 +39,7 @@ app.use(
 );
 
 app.use('/api/auth', authRoutes);
+app.use('/api/addresses', addressesRoutes);
 app.use('/api/owner', ownerRoutes);
 app.use('/api/courier', courierRoutes);
 app.use('/api/admin', adminRoutes);

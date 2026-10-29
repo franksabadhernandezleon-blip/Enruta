@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Check, Copy, MessageCircle, Route, Truck } from 'lucide-react';
+import { ArrowRight, Check, Copy, MapPin, MessageCircle, Route, Truck } from 'lucide-react';
+import AddressSelectorModal from '../components/AddressSelectorModal.jsx';
 import ClientHeader from '../components/ClientHeader.jsx';
 import MapPicker from '../components/MapPicker.jsx';
 import { Alert, Field, Spinner, Toggle } from '../components/ui.jsx';
@@ -27,7 +28,10 @@ export default function CheckoutPage() {
 
   const [destination, setDestination] = useState({ lat: address.lat, lng: address.lng });
   const [label, setLabel] = useState(address.label);
+  const [addressText, setAddressText] = useState(address.addressText || address.label || '');
   const [reference, setReference] = useState(address.reference || '');
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
+  const [isSelectorOpen, setIsSelectorOpen] = useState(false);
   const [customer, setCustomer] = useState({ name: user?.name || '', phone: user?.phone || '' });
   const [notes, setNotes] = useState('');
   const [dynamic, setDynamic] = useState(false);
@@ -64,6 +68,35 @@ export default function CheckoutPage() {
   useEffect(() => {
     if (user) setCustomer((prev) => ({ name: prev.name || user.name || '', phone: prev.phone || user.phone || '' }));
   }, [user]);
+
+  // Autoselección de dirección predeterminada si el usuario está autenticado
+  useEffect(() => {
+    if (user) {
+      api.addresses
+        .list()
+        .then((res) => {
+          const list = res.addresses || [];
+          if (list.length > 0) {
+            const def = list.find((a) => a.isDefault) || list[0];
+            setSelectedAddressId(def.id);
+            setLabel(def.label);
+            setAddressText(def.addressText);
+            setReference(def.reference || '');
+            setDestination({ lat: def.lat, lng: def.lng });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [user]);
+
+  const handleSelectAddress = (selected) => {
+    if (!selected) return;
+    setSelectedAddressId(selected.id || null);
+    setLabel(selected.label || 'Casa');
+    setAddressText(selected.addressText || selected.label || '');
+    setReference(selected.reference || '');
+    setDestination({ lat: selected.lat, lng: selected.lng });
+  };
 
   const copy = async (value, key) => {
     try {
@@ -157,10 +190,14 @@ export default function CheckoutPage() {
         {
           cart: cart.cartPayload,
           destination: { lat: destination.lat, lng: destination.lng },
+          addressId: selectedAddressId || null,
+          reference: reference || '',
           customer: {
             name: customer.name,
             phone: customer.phone,
-            address: `${label}${reference ? ` (${reference})` : ''}`,
+            address: `${addressText || label}${reference ? ` (${reference})` : ''}`,
+            addressId: selectedAddressId || null,
+            reference: reference || '',
           },
           paymentMethod: quote.requiresConfirmation ? 'whatsapp' : PAYMENT_LABELS[paymentMethod],
           paymentRef: quote.requiresConfirmation ? '' : paymentRef,
@@ -215,16 +252,36 @@ if (!user) return <Navigate to={`/login?next=/checkout`} replace />;
 
         <div className="checkout-grid">
           <section className="panel">
-            <h2>Punto de entrega</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h2 style={{ margin: 0 }}>Punto de entrega</h2>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setIsSelectorOpen(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+              >
+                <MapPin size={14} aria-hidden="true" />
+                Mis direcciones / Cambiar
+              </button>
+            </div>
+
             <MapPicker
               point={destination}
-              onChange={(point) => setDestination(point)}
+              onChange={(point) => {
+                setDestination(point);
+                setSelectedAddressId(null); // Al mover el pin manualmente ya no pertenece a una dirección guardada intacta
+              }}
               markers={markers}
               label="Entrega"
             />
+
             <div className="field-row">
-              <Field label="Nombre de la dirección">
-                <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Ej: Casa, oficina, vereda" />
+              <Field label="Dirección / Etiqueta">
+                <input
+                  value={addressText || label}
+                  onChange={(event) => setAddressText(event.target.value)}
+                  placeholder="Ej: Casa, Calle 3 #45"
+                />
               </Field>
               <Field label="Referencia">
                 <input
@@ -416,6 +473,13 @@ if (!user) return <Navigate to={`/login?next=/checkout`} replace />;
           </section>
         </div>
       </main>
+
+      <AddressSelectorModal
+        isOpen={isSelectorOpen}
+        onClose={() => setIsSelectorOpen(false)}
+        onSelect={handleSelectAddress}
+        selectedAddressId={selectedAddressId}
+      />
     </div>
   );
 }

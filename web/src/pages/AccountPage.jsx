@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { BellRing, Bike, ClipboardList, LogOut, Receipt, Store as StoreIcon, UserRound } from 'lucide-react';
+import { BellRing, Bike, ClipboardList, LogOut, MapPin, Receipt, Store as StoreIcon, UserRound } from 'lucide-react';
 import ClientHeader from '../components/ClientHeader.jsx';
 import { Alert, Section } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
@@ -97,6 +97,10 @@ export default function AccountPage() {
                 <Link to="/pedidos" className="btn btn-ghost">
                   <Receipt size={15} aria-hidden="true" />
                   Mis pedidos
+                </Link>
+                <Link to="/cuenta/direcciones" className="btn btn-ghost">
+                  <MapPin size={15} aria-hidden="true" />
+                  Mis direcciones
                 </Link>
                 {isOwner && (
                   <Link to="/mitienda" className="btn btn-ghost">

@@ -208,6 +208,8 @@ router.post('/orders', optionalAuth, proofUpload.single('proof'), async (req, re
       notes: body.notes,
       dynamic: Boolean(body.dynamic),
       user: req.user,
+      addressId: body.addressId || body.customer?.addressId,
+      reference: body.reference || body.customer?.reference,
     });
 
     let proofs = [];

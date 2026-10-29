@@ -121,6 +121,14 @@ export const api = {
   orderProofs: (code) => request(`/orders/${code}/proofs`),
   addOrderProof,
 
+  addresses: {
+    list: () => request('/addresses'),
+    create: (payload) => request('/addresses', { method: 'POST', body: payload }),
+    update: (id, payload) => request(`/addresses/${id}`, { method: 'PATCH', body: payload }),
+    setDefault: (id) => request(`/addresses/${id}/default`, { method: 'PATCH' }),
+    delete: (id) => request(`/addresses/${id}`, { method: 'DELETE' }),
+  },
+
   owner: {
     store: () => request('/owner/store'),
     updateStore: (payload) => request('/owner/store', { method: 'PUT', body: payload }),
