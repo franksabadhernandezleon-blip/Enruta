@@ -154,7 +154,7 @@ export default function CheckoutPage() {
       </div>
     );
   }
-
+if (!user) return <Navigate to={`/login?next=/checkout`} replace />;
   return (
     <div className="client-shell">
       <ClientHeader />
