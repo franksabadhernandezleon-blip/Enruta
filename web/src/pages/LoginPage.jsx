@@ -24,7 +24,7 @@ export default function LoginPage() {
 
       const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
       if (!clientId) {
-        console.error('Falta VITE_GOOGLE_CLIENT_ID en el frontend');
+        console.error('Falta VITE_GOOGLE_CLIENT_ID');
         return;
       }
 
