@@ -7,9 +7,3 @@ export const pool = new pg.Pool({
   },
   max: 10,
 });
-
-pool.on('error', (error) => {
-  console.error('[db] error inesperado en el pool:', error.message);
-});
-
-export const query = (text, params) => pool.query(text, params);
