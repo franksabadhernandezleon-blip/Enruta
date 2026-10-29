@@ -9,6 +9,10 @@ export const port = Number(process.env.PORT || 10000);
 export const uploadDir = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
 
+// Comprobantes de pago: privados (no pasan por /uploads) y se borran a la semana.
+export const proofDir = process.env.PROOF_DIR || path.join(process.cwd(), 'proofs');
+fs.mkdirSync(proofDir, { recursive: true });
+
 // Cliente compilado por Vite. En producción lo sirve este mismo Express para conservar
 // un solo origen (Render); en desarrollo la carpeta no existe y la sirve el servidor de Vite.
 export const webDistDir =

@@ -33,6 +33,8 @@ export default function CheckoutPage() {
   const [dynamic, setDynamic] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('pagoMovil');
   const [paymentRef, setPaymentRef] = useState('');
+  const [proofFile, setProofFile] = useState(null);
+  const [proofPreview, setProofPreview] = useState('');
   const [quote, setQuote] = useState(null);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
@@ -73,9 +75,16 @@ export default function CheckoutPage() {
     }
   };
 
+  // Las paradas de la cotización traen las coordenadas reales de cada tienda.
   const markers = useMemo(
-    () => cart.stores.map((group) => ({ id: group.storeId, name: group.storeName, lat: 0, lng: 0 })),
-    [cart.stores],
+    () =>
+      (quote?.stops || []).map((stop) => ({
+        id: stop.storeId,
+        name: stop.storeName,
+        lat: Number(stop.lat),
+        lng: Number(stop.lng),
+      })),
+    [quote],
   );
 
   const whatsappMessage = useMemo(() => {
@@ -103,6 +112,25 @@ export default function CheckoutPage() {
     });
   }, [quote, cart.lines, customer, label, reference, notes, destination, settings, paymentMethod]);
 
+  // Solo fotos: el comprobante es la única cosa que el cliente envía a la tienda.
+  const selectProof = (file) => {
+    setError('');
+    if (proofPreview) URL.revokeObjectURL(proofPreview);
+    if (!file) {
+      setProofFile(null);
+      setProofPreview('');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      setProofFile(null);
+      setProofPreview('');
+      setError('El comprobante de pago debe ser una foto (JPG, PNG, WEBP o GIF).');
+      return;
+    }
+    setProofFile(file);
+    setProofPreview(URL.createObjectURL(file));
+  };
+
   const submit = async () => {
     setError('');
     if (!customer.name.trim()) {
@@ -117,19 +145,30 @@ export default function CheckoutPage() {
       setError('Registra la referencia del pago para confirmar el pedido.');
       return;
     }
+    if (!quote?.requiresConfirmation && !proofFile) {
+      setError('Adjunta la foto del comprobante de pago para confirmar el pedido.');
+      return;
+    }
 
     setStatus('saving');
     try {
       persistAddress({ label, reference, lat: destination.lat, lng: destination.lng });
-      const data = await api.createOrder({
-        cart: cart.cartPayload,
-        destination: { lat: destination.lat, lng: destination.lng },
-        customer: { name: customer.name, phone: customer.phone, address: `${label}${reference ? ` (${reference})` : ''}` },
-        paymentMethod: quote.requiresConfirmation ? 'whatsapp' : PAYMENT_LABELS[paymentMethod],
-        paymentRef: quote.requiresConfirmation ? '' : paymentRef,
-        notes,
-        dynamic,
-      });
+      const data = await api.createOrder(
+        {
+          cart: cart.cartPayload,
+          destination: { lat: destination.lat, lng: destination.lng },
+          customer: {
+            name: customer.name,
+            phone: customer.phone,
+            address: `${label}${reference ? ` (${reference})` : ''}`,
+          },
+          paymentMethod: quote.requiresConfirmation ? 'whatsapp' : PAYMENT_LABELS[paymentMethod],
+          paymentRef: quote.requiresConfirmation ? '' : paymentRef,
+          notes,
+          dynamic,
+        },
+        quote.requiresConfirmation ? null : proofFile,
+      );
       cart.clear();
       navigate(`/pedido/${data.order.code}`);
     } catch (requestError) {
@@ -165,8 +204,9 @@ if (!user) return <Navigate to={`/login?next=/checkout`} replace />;
             <p className="eyebrow">Checkout multi-ruta</p>
             <h1>Confirma tu ruta de entrega</h1>
             <p className="lede">
-              Toca el mapa para ajustar el punto exacto. Calculamos la distancia real entre las paradas con
-              Haversine ({quote?.distanceKm ?? 0} km).
+              Usa tu ubicación actual o toca el mapa para marcar el punto exacto: el motorizado recibe estas
+              coordenadas y navega hasta tu puerta. Calculamos la distancia real entre las paradas con Haversine
+              ({quote?.distanceKm ?? 0} km).
             </p>
           </div>
         </section>
@@ -179,7 +219,7 @@ if (!user) return <Navigate to={`/login?next=/checkout`} replace />;
             <MapPicker
               point={destination}
               onChange={(point) => setDestination(point)}
-              markers={markers.filter((marker) => Number.isFinite(marker.lat))}
+              markers={markers}
               label="Entrega"
             />
             <div className="field-row">
@@ -342,6 +382,20 @@ if (!user) return <Navigate to={`/login?next=/checkout`} replace />;
                 <Field label="Referencia del pago">
                   <input value={paymentRef} onChange={(event) => setPaymentRef(event.target.value)} placeholder="Últimos 4 dígitos o nº de operación" />
                 </Field>
+
+                <Field label="Comprobante de pago (obligatorio)">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => selectProof(event.target.files?.[0] || null)}
+                  />
+                </Field>
+                {proofPreview && (
+                  <img className="proof-preview" src={proofPreview} alt="Vista previa del comprobante" />
+                )}
+                <p className="muted small">
+                  Solo fotos: la tienda recibe tu comprobante junto al número de pedido y se borra solo a los 7 días.
+                </p>
               </>
             )}
 

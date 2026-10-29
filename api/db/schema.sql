@@ -205,6 +205,19 @@ CREATE TABLE IF NOT EXISTS courier_locations (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Comprobantes de pago: el cliente solo envía fotos (sin texto) y la tienda las ve
+-- junto al número de pedido. Se borran solas a los 7 días (fila + archivo).
+CREATE TABLE IF NOT EXISTS payment_proofs (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id   uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  file_name  text NOT NULL,
+  mime_type  text NOT NULL DEFAULT 'image/jpeg',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL DEFAULT now() + interval '7 days'
+);
+
 CREATE INDEX IF NOT EXISTS orders_status_idx ON orders (status);
 CREATE INDEX IF NOT EXISTS order_items_order_idx ON order_items (order_id);
 CREATE INDEX IF NOT EXISTS order_stops_order_idx ON order_stops (order_id);
+CREATE INDEX IF NOT EXISTS payment_proofs_order_idx ON payment_proofs (order_id);
+CREATE INDEX IF NOT EXISTS payment_proofs_expires_idx ON payment_proofs (expires_at);

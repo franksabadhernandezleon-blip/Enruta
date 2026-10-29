@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Bike, MessageCircle, Phone, Receipt, ShieldCheck, Sparkles } from 'lucide-react';
 import ClientHeader from '../components/ClientHeader.jsx';
-import { Alert, Spinner, StatusPill } from '../components/ui.jsx';
+import ProofPhoto from '../components/ProofPhoto.jsx';
+import { Alert, Field, Spinner, StatusPill } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { useConfig } from '../lib/config.jsx';
 import { formatBs, formatDate, formatUsd, statusLabel } from '../lib/format.js';
@@ -16,6 +17,10 @@ export default function OrderPage() {
   const [orders, setOrders] = useState([]);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
+  const [proofs, setProofs] = useState([]);
+  const [canUploadProof, setCanUploadProof] = useState(false);
+  const [proofBusy, setProofBusy] = useState(false);
+  const [proofError, setProofError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -42,6 +47,41 @@ export default function OrderPage() {
       clearInterval(timer);
     };
   }, [code]);
+
+  // Comprobantes vigentes del pedido (los vencidos ya no llegan desde la API).
+  const loadProofs = useCallback(async () => {
+    if (!code) return;
+    try {
+      const data = await api.orderProofs(code);
+      setProofs(data.proofs || []);
+      setCanUploadProof(Boolean(data.canUpload));
+    } catch {
+      setProofs([]);
+      setCanUploadProof(false);
+    }
+  }, [code]);
+
+  useEffect(() => {
+    loadProofs();
+  }, [loadProofs]);
+
+  const sendProof = async (file) => {
+    if (!file) return;
+    setProofError('');
+    if (!file.type.startsWith('image/')) {
+      setProofError('El comprobante debe ser una foto (JPG, PNG, WEBP o GIF).');
+      return;
+    }
+    setProofBusy(true);
+    try {
+      await api.addOrderProof(code, file);
+      await loadProofs();
+    } catch (requestError) {
+      setProofError(requestError.message);
+    } finally {
+      setProofBusy(false);
+    }
+  };
 
   const message = useMemo(() => {
     if (!order) return '';
@@ -274,6 +314,48 @@ export default function OrderPage() {
                 <Sparkles size={13} aria-hidden="true" /> Si la tasa cambia mañana, este pedido mantiene su monto
                 original en Bs.
               </p>
+            </section>
+
+            <section className="panel">
+              <header className="panel-head">
+                <div>
+                  <h2>
+                    <Receipt size={16} aria-hidden="true" /> Comprobante de pago
+                  </h2>
+                  <p className="muted">
+                    La tienda lo ve junto al número de pedido {order.code} y se borra solo a los 7 días.
+                  </p>
+                </div>
+              </header>
+
+              {proofs.length > 0 && (
+                <div className="proof-gallery">
+                  {proofs.map((proof) => (
+                    <ProofPhoto key={proof.id} proofId={proof.id} />
+                  ))}
+                </div>
+              )}
+              {!proofs.length && <p className="muted">Todavía no enviaste el comprobante de pago.</p>}
+
+              {canUploadProof && order.status !== 'cancelled' && (
+                <>
+                  <Field label="Enviar otra foto del comprobante">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={proofBusy}
+                      onChange={(event) => {
+                        sendProof(event.target.files?.[0] || null);
+                        event.target.value = '';
+                      }}
+                    />
+                  </Field>
+                  <p className="muted small">
+                    Solo fotos, sin mensajes de texto. Cada comprobante se guarda una semana y se elimina solo.
+                  </p>
+                  <Alert>{proofError}</Alert>
+                </>
+              )}
             </section>
           </div>
         )}

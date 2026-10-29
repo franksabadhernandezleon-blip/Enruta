@@ -40,9 +40,10 @@ volumen. Sin ese paso, `npm ci` aborta por lockfile desincronizado y la API qued
 - **Un solo origen.** El navegador solo habla con el puerto 3000; Vite hace proxy de `/api` y
   `/uploads` hacia `api:8000`. Por eso no hay CORS: cualquier endpoint nuevo se consume con rutas
   relativas (`/api/...`). La API no publica puerto al host.
-- **Las imágenes son públicas.** Se guardan en el volumen `enruta_uploads` y la API las sirve en
-  `/uploads/<archivo>`; cualquiera con el enlace puede abrirlas. Al reemplazar o quitar una foto, el
-  archivo anterior se borra del volumen.
+- **Las imágenes de catálogo son públicas.** Se guardan en el volumen `enruta_uploads` y la API las sirve
+  en `/uploads/<archivo>`; cualquiera con el enlace puede abrirlas. Al reemplazar o quitar una foto, el
+  archivo anterior se borra del volumen. **Excepción:** los comprobantes de pago son privados y viven en
+  `PROOF_DIR` (ver "Comprobantes de pago").
 - **Migraciones idempotentes.** `npm run migrate` aplica `api/db/schema.sql` con `IF NOT EXISTS` y
   solo siembra la demo cuando `users` está vacía. Nunca borra datos existentes.
 - **Cuentas demo** (contraseña `enruta123` para todas): `dueno@enruta.com` (dueño de "Pizzería El
@@ -55,6 +56,48 @@ volumen. Sin ese paso, `npm ci` aborta por lockfile desincronizado y la API qued
   `googleClientId` de `/api/config` queda en null y la pantalla de login oculta el botón de Google
   (muestra el aviso de configuración en su lugar). El login por correo/contraseña funciona igual; para
   activar Google hay que definir `GOOGLE_CLIENT_ID` en los secretos de la app.
+- **SSL de Postgres.** `api/src/db.js` activa SSL solo con un `DATABASE_URL` remoto: la URL del compose
+  (`@db:5432`) o un `sslmode=disable` apagan el SSL. Render sigue exigiendo SSL, así que no se toca esa rama.
+- **Archivos reparados.** `api/src/server.js` y `web/src/lib/api.js` llegaron truncados a esta rama y
+  `LoginPage` había perdido el formulario de correo/contraseña (quedaba solo el botón de Google). Se
+  restauraron desde el historial (commits `181ac1c` y `aec753b`): sin eso la API no arrancaba y el cliente
+  no compilaba.
+
+## Mapa y ubicación del pedido
+
+- **Fondo real de mapa.** `web/src/components/MapPicker.jsx` pinta los tiles de OpenStreetMap
+  (`tile.openstreetmap.org`, sin clave ni dependencias nuevas) con la atribución visible. Los pide el
+  navegador; si no cargan, se ocultan solos y queda la retícula de respaldo del componente.
+- **Una sola proyección.** Los pines usan Web Mercator igual que los tiles (`web/src/lib/geo.js`:
+  `mapView`, `mapTiles`, `viewPosition`, `pointAt`). Para cambiar el encuadre se tocan esas funciones, no
+  posiciones en porcentaje a mano.
+- **Ubicación actual.** En modo editable el mapa muestra "Usar mi ubicación actual"
+  (`navigator.geolocation`): al obtener la posición recentra y mueve el pin. Necesita permiso del navegador;
+  si se niega, aparece el aviso y el cliente marca el punto con un toque. En el preview de Base44 el iframe
+  puede bloquear el permiso: ese mensaje de respaldo es el comportamiento esperado, no un fallo.
+- **El motorizado sabe a dónde va.** El checkout envía `destination.lat/lng` a `POST /api/orders`; el
+  pedido guarda ese punto y el radar de `/repartidor` lo muestra con la dirección, las coordenadas y el
+  enlace "Navegar" a Google Maps.
+
+## Comprobantes de pago (solo fotos, borrado a la semana)
+
+- **Obligatorio al comprar.** `POST /api/orders` acepta `multipart/form-data` con `payload` (JSON del
+  pedido) y `proof` (la foto). Sin foto responde 400 salvo que `paymentMethod` sea `whatsapp` (el
+  pedido que se cierra por WhatsApp con la tienda). El cliente lo envía desde `api.createOrder(payload, file)`.
+- **Tabla `payment_proofs`** (`order_id`, `file_name`, `mime_type`, `expires_at = now() + 7 días`).
+  `api/src/proofs.js` filtra siempre `expires_at > now()`, así que lo vencido desaparece de las listas
+  aunque la limpieza aún no haya corrido.
+- **Borrado automático.** `startProofCleanup()` en `api/src/server.js` corre al arrancar y cada hora:
+  borra filas vencidas y su archivo del disco. Para probarlo a mano:
+  `docker compose -f docker-compose.base44.yml exec -T api node -e "import('./src/proofs.js').then(async m => console.log(await m.purgeExpiredProofs()))"`.
+- **Privados, no en `/uploads`.** Los archivos viven en `PROOF_DIR` (volumen `enruta_proofs`, `/app/proofs`;
+  en Render `/var/data/proofs`) y se sirven con `GET /api/proofs/:id/photo` exigiendo sesión: solo el
+  cliente del pedido, las tiendas de esa ruta y el admin. Por eso el cliente React no puede usar `<img src>`
+  directo: `ProofPhoto` descarga el blob con el token (`loadProofPhoto` en `web/src/lib/api.js`).
+- **Lo que ve la tienda.** `GET /api/owner/proofs` devuelve número de pedido, método de pago, monto,
+  cliente, `daysLeft` y la URL de la foto; se pinta en la sección "Comprobantes de pago" de `/mitienda`.
+- **Solo fotos.** No hay endpoint de mensajes de texto en ninguna dirección; el cliente puede añadir más
+  fotos a su pedido con `POST /api/orders/:code/proofs` (solo el cliente del pedido o el admin).
 
 ## Navegación del cliente
 

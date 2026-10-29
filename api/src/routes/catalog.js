@@ -1,9 +1,20 @@
+import path from 'node:path';
 import { Router } from 'express';
 import { googleClientId, vapidPublicKey } from '../config.js';
-import { bannedNow, httpError, optionalAuth, requireAuth } from '../auth.js';
+import { bannedNow, httpError, isAdmin, optionalAuth, requireAuth } from '../auth.js';
 import { query } from '../db.js';
 import { createOrder, loadOrder, quoteCart, serializeOrder } from '../orders.js';
+import {
+  addProof,
+  canSeeProof,
+  findProof,
+  listOrderProofs,
+  proofPath,
+  removeProofFile,
+  serializeProof,
+} from '../proofs.js';
 import { getSettings, publicSettings } from '../settings.js';
+import { proofUpload } from '../uploads.js';
 
 const router = Router();
 
@@ -140,7 +151,13 @@ router.post('/quote', async (req, res, next) => {
         storeId: line.storeId,
         storeName: line.storeName,
       })),
-      stops: built.stops.map((stop) => ({ storeId: stop.storeId, storeName: stop.storeName })),
+      // Las coordenadas de la tienda permiten dibujar las paradas en el mapa del checkout.
+      stops: built.stops.map((stop) => ({
+        storeId: stop.storeId,
+        storeName: stop.storeName,
+        lat: Number(stop.lat),
+        lng: Number(stop.lng),
+      })),
       subtotalCents: built.subtotalCents,
       deliveryCents: built.deliveryCents,
       totalCents: built.totalCents,
@@ -161,20 +178,110 @@ router.post('/quote', async (req, res, next) => {
   }
 });
 
-router.post('/orders', optionalAuth, async (req, res, next) => {
+// El pedido llega como multipart cuando trae la foto del comprobante de pago
+// (obligatoria salvo que el pedido se cierre por WhatsApp con la tienda).
+router.post('/orders', optionalAuth, proofUpload.single('proof'), async (req, res, next) => {
   try {
     if (bannedNow(req.user)) throw httpError(403, 'Tu cuenta está suspendida.');
+
+    let body = req.body || {};
+    if (typeof body.payload === 'string') {
+      try {
+        body = JSON.parse(body.payload);
+      } catch {
+        throw httpError(400, 'No pudimos leer los datos del pedido.');
+      }
+    }
+
+    const paymentMethod = String(body.paymentMethod || '');
+    const proofRequired = paymentMethod.toLowerCase() !== 'whatsapp';
+    if (proofRequired && !req.file) {
+      throw httpError(400, 'Adjunta la foto del comprobante de pago para registrar tu pedido.');
+    }
+
     const order = await createOrder({
-      cart: req.body?.cart,
-      destination: req.body?.destination,
-      customer: req.body?.customer,
-      paymentMethod: req.body?.paymentMethod,
-      paymentRef: req.body?.paymentRef,
-      notes: req.body?.notes,
-      dynamic: Boolean(req.body?.dynamic),
+      cart: body.cart,
+      destination: body.destination,
+      customer: body.customer,
+      paymentMethod: body.paymentMethod,
+      paymentRef: body.paymentRef,
+      notes: body.notes,
+      dynamic: Boolean(body.dynamic),
       user: req.user,
     });
-    res.status(201).json({ order: serializeOrder(order, { view: 'customer' }) });
+
+    let proofs = [];
+    if (req.file) {
+      try {
+        await addProof({ orderId: order.id, file: req.file });
+        proofs = (await listOrderProofs(order.id)).map(serializeProof);
+      } catch (error) {
+        await removeProofFile(req.file);
+        throw error;
+      }
+    }
+
+    res.status(201).json({ order: serializeOrder(order, { view: 'customer' }), proofs });
+  } catch (error) {
+    await removeProofFile(req.file);
+    next(error);
+  }
+});
+
+// Comprobantes del pedido: los sube el cliente (solo fotos) y los ven las tiendas de la ruta.
+router.get('/orders/:code/proofs', requireAuth, async (req, res, next) => {
+  try {
+    const order = await loadOrder({ code: req.params.code });
+    if (!order) throw httpError(404, 'No encontramos ese pedido.');
+
+    const isCustomer = Boolean(req.user) && order.customer_id === req.user.id;
+    const { rows: owned } = await query(
+      `SELECT 1 FROM order_stops st JOIN stores s ON s.id = st.store_id
+        WHERE st.order_id = $1 AND (s.owner_id = $2 OR lower(s.owner_email) = lower($3)) LIMIT 1`,
+      [order.id, req.user.id, req.user.email],
+    );
+    if (!isCustomer && !owned.length && !isAdmin(req.user)) {
+      throw httpError(403, 'No puedes ver los comprobantes de este pedido.');
+    }
+
+    const proofs = (await listOrderProofs(order.id)).map((proof) =>
+      serializeProof({ ...proof, order_code: order.code }),
+    );
+    res.json({ proofs, canUpload: isCustomer || isAdmin(req.user) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/orders/:code/proofs', requireAuth, proofUpload.single('image'), async (req, res, next) => {
+  try {
+    const order = await loadOrder({ code: req.params.code });
+    if (!order) throw httpError(404, 'No encontramos ese pedido.');
+    if (order.customer_id !== req.user.id && !isAdmin(req.user)) {
+      throw httpError(403, 'Solo el cliente del pedido puede enviar comprobantes.');
+    }
+    if (order.status === 'cancelled') throw httpError(400, 'Este pedido fue cancelado.');
+    if (!req.file) throw httpError(400, 'Adjunta una foto del comprobante de pago.');
+
+    const proof = await addProof({ orderId: order.id, file: req.file });
+    res.status(201).json({ proof: serializeProof({ ...proof, order_code: order.code }) });
+  } catch (error) {
+    await removeProofFile(req.file);
+    next(error);
+  }
+});
+
+// Foto del comprobante: privada, solo para el cliente, la tienda y el admin.
+router.get('/proofs/:id/photo', requireAuth, async (req, res, next) => {
+  try {
+    const proof = await findProof(req.params.id);
+    if (!proof) throw httpError(404, 'Ese comprobante ya no está disponible.');
+    if (!isAdmin(req.user) && !(await canSeeProof({ proof, user: req.user }))) {
+      throw httpError(403, 'No puedes ver este comprobante.');
+    }
+    res.type(proof.mime_type || path.extname(proof.file_name));
+    res.setHeader('Cache-Control', 'private, max-age=600');
+    res.sendFile(proofPath(proof.file_name));
   } catch (error) {
     next(error);
   }

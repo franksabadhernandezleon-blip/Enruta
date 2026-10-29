@@ -50,11 +50,13 @@ services:
       PORT: 8000
       DATABASE_URL: postgres://enruta:enruta_dev_password@db:5432/enruta
       UPLOAD_DIR: /app/uploads
+      PROOF_DIR: /app/proofs
       BASE44_PREVIEW_MODE: ${BASE44_PREVIEW_MODE:-}
     volumes:
       - ./api:/app
       - enruta_api_modules:/app/node_modules
       - enruta_uploads:/app/uploads
+      - enruta_proofs:/app/proofs
     depends_on:
       db:
         condition: service_healthy
@@ -110,3 +112,4 @@ volumes:
   enruta_api_modules:
   enruta_web_modules:
   enruta_uploads:
+  enruta_proofs:
