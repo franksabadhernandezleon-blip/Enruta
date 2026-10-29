@@ -1,10 +1,15 @@
 import pg from 'pg';
 
+const connectionString = process.env.DATABASE_URL || '';
+
+// El Postgres alojado (Render) exige SSL; el de docker-compose no lo ofrece.
+// Se desactiva solo para anfitriones locales o cuando la URL lo pide explícito.
+const localDatabase =
+  /@(db|localhost|127\.0\.0\.1)[:/]/.test(connectionString) || /sslmode=disable/.test(connectionString);
+
 export const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  connectionString,
+  ssl: localDatabase ? false : { rejectUnauthorized: false },
   max: 10,
 });
 

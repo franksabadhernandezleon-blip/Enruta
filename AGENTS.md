@@ -55,6 +55,28 @@ volumen. Sin ese paso, `npm ci` aborta por lockfile desincronizado y la API qued
   `googleClientId` de `/api/config` queda en null y la pantalla de login oculta el botón de Google
   (muestra el aviso de configuración en su lugar). El login por correo/contraseña funciona igual; para
   activar Google hay que definir `GOOGLE_CLIENT_ID` en los secretos de la app.
+- **SSL de Postgres.** `api/src/db.js` activa SSL solo con un `DATABASE_URL` remoto: la URL del compose
+  (`@db:5432`) o un `sslmode=disable` apagan el SSL. Render sigue exigiendo SSL, así que no se toca esa rama.
+- **Archivos reparados.** `api/src/server.js` y `web/src/lib/api.js` llegaron truncados a esta rama y
+  `LoginPage` había perdido el formulario de correo/contraseña (quedaba solo el botón de Google). Se
+  restauraron desde el historial (commits `181ac1c` y `aec753b`): sin eso la API no arrancaba y el cliente
+  no compilaba.
+
+## Mapa y ubicación del pedido
+
+- **Fondo real de mapa.** `web/src/components/MapPicker.jsx` pinta los tiles de OpenStreetMap
+  (`tile.openstreetmap.org`, sin clave ni dependencias nuevas) con la atribución visible. Los pide el
+  navegador; si no cargan, se ocultan solos y queda la retícula de respaldo del componente.
+- **Una sola proyección.** Los pines usan Web Mercator igual que los tiles (`web/src/lib/geo.js`:
+  `mapView`, `mapTiles`, `viewPosition`, `pointAt`). Para cambiar el encuadre se tocan esas funciones, no
+  posiciones en porcentaje a mano.
+- **Ubicación actual.** En modo editable el mapa muestra "Usar mi ubicación actual"
+  (`navigator.geolocation`): al obtener la posición recentra y mueve el pin. Necesita permiso del navegador;
+  si se niega, aparece el aviso y el cliente marca el punto con un toque. En el preview de Base44 el iframe
+  puede bloquear el permiso: ese mensaje de respaldo es el comportamiento esperado, no un fallo.
+- **El motorizado sabe a dónde va.** El checkout envía `destination.lat/lng` a `POST /api/orders`; el
+  pedido guarda ese punto y el radar de `/repartidor` lo muestra con la dirección, las coordenadas y el
+  enlace "Navegar" a Google Maps.
 
 ## Navegación del cliente
 

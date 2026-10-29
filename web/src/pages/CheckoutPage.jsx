@@ -73,9 +73,16 @@ export default function CheckoutPage() {
     }
   };
 
+  // Las paradas de la cotización traen las coordenadas reales de cada tienda.
   const markers = useMemo(
-    () => cart.stores.map((group) => ({ id: group.storeId, name: group.storeName, lat: 0, lng: 0 })),
-    [cart.stores],
+    () =>
+      (quote?.stops || []).map((stop) => ({
+        id: stop.storeId,
+        name: stop.storeName,
+        lat: Number(stop.lat),
+        lng: Number(stop.lng),
+      })),
+    [quote],
   );
 
   const whatsappMessage = useMemo(() => {
@@ -165,8 +172,9 @@ if (!user) return <Navigate to={`/login?next=/checkout`} replace />;
             <p className="eyebrow">Checkout multi-ruta</p>
             <h1>Confirma tu ruta de entrega</h1>
             <p className="lede">
-              Toca el mapa para ajustar el punto exacto. Calculamos la distancia real entre las paradas con
-              Haversine ({quote?.distanceKm ?? 0} km).
+              Usa tu ubicación actual o toca el mapa para marcar el punto exacto: el motorizado recibe estas
+              coordenadas y navega hasta tu puerta. Calculamos la distancia real entre las paradas con Haversine
+              ({quote?.distanceKm ?? 0} km).
             </p>
           </div>
         </section>
@@ -179,7 +187,7 @@ if (!user) return <Navigate to={`/login?next=/checkout`} replace />;
             <MapPicker
               point={destination}
               onChange={(point) => setDestination(point)}
-              markers={markers.filter((marker) => Number.isFinite(marker.lat))}
+              markers={markers}
               label="Entrega"
             />
             <div className="field-row">

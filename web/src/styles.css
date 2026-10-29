@@ -941,6 +941,36 @@ textarea {
   height: 100%;
 }
 
+/* Fondo real: tiles de OpenStreetMap alineados con la proyección de los pines. */
+.map-tiles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.map-tiles img {
+  position: absolute;
+  display: block;
+  user-select: none;
+}
+
+.map-attribution {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.map-locate {
+  margin-left: auto;
+}
+
 .map-grid line {
   stroke: #e6e8ec;
   stroke-width: 0.2;
@@ -1602,7 +1632,7 @@ textarea {
 
 .auth-shell {
   display: grid;
-  grid-template-columns: 1.05fr 1fr;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -1707,7 +1737,7 @@ textarea {
 
 @media (max-width: 900px) {
   .auth-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .auth-story {
@@ -1716,6 +1746,18 @@ textarea {
 
   .auth-story-body h1 {
     font-size: 1.6rem;
+  }
+
+  /* En una columna la tarjeta debe ajustarse al ancho del teléfono. */
+  .auth-panel {
+    padding: 22px 16px;
+    justify-items: stretch;
+  }
+
+  .auth-card {
+    width: 100%;
+    max-width: 420px;
+    min-width: 0;
   }
 }
 

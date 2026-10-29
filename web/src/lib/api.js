@@ -1,3 +1,19 @@
+const TOKEN_KEY = 'enruta.token';
+
+export const getToken = () => localStorage.getItem(TOKEN_KEY);
+export const setToken = (token) => {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+};
+
+export class ApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function request(path, { method = 'GET', body, formData, offline = false } = {}) {
   const headers = {};
   const token = getToken();
@@ -52,3 +68,94 @@ async function request(path, { method = 'GET', body, formData, offline = false }
 
   return data;
 }
+
+const uploadImage = (file) => {
+  const formData = new FormData();
+  formData.append('image', file);
+  return request('/uploads', { method: 'POST', formData });
+};
+
+export const api = {
+  config: () => request('/config'),
+  register: (payload) => request('/auth/register', { method: 'POST', body: payload }),
+  login: ({ email, password }) => request('/auth/login', { method: 'POST', body: { email, password } }),
+  google: (credential) => request('/auth/google', { method: 'POST', body: { credential } }),
+  me: () => request('/auth/me'),
+  subscribePush: (subscription, role) =>
+    request('/auth/push', { method: 'POST', body: { subscription, role } }),
+  testPush: () => request('/auth/push/test', { method: 'POST' }),
+  uploadImage,
+
+  search: (q) => request(`/search?q=${encodeURIComponent(q)}`),
+  stores: () => request('/stores'),
+  store: (slug) => request(`/stores/${slug}`),
+  quote: (payload) => request('/quote', { method: 'POST', body: payload }),
+  createOrder: (payload) => request('/orders', { method: 'POST', body: payload }),
+  order: (code) => request(`/orders/${code}`),
+  myOrders: () => request('/orders/mine'),
+
+  owner: {
+    store: () => request('/owner/store'),
+    updateStore: (payload) => request('/owner/store', { method: 'PUT', body: payload }),
+    createProduct: (payload) => request('/owner/products', { method: 'POST', body: payload }),
+    updateProduct: (id, payload) => request(`/owner/products/${id}`, { method: 'PATCH', body: payload }),
+    deleteProduct: (id) => request(`/owner/products/${id}`, { method: 'DELETE' }),
+    orders: () => request('/owner/orders'),
+    release: (orderId, pin) =>
+      request(`/owner/orders/${orderId}/release`, { method: 'POST', body: { pin } }),
+    releaseCourier: (orderId) =>
+      request(`/owner/orders/${orderId}/release-courier`, { method: 'POST', body: {} }),
+    stats: () => request('/owner/stats'),
+  },
+
+  courier: {
+    ready: () => request('/courier/orders/ready'),
+    mine: () => request('/courier/orders/mine'),
+    order: (id) => request(`/courier/orders/${id}`),
+    accept: (id) => request(`/courier/orders/${id}/accept`, { method: 'POST' }),
+    checklist: (id, items) =>
+      request(`/courier/orders/${id}/checklist`, { method: 'POST', body: { items } }),
+    releaseStop: (orderId, stopId, pin, isOffline) =>
+      request(`/courier/orders/${orderId}/stops/${stopId}/release`, {
+        method: 'POST',
+        body: { pin, offline: Boolean(isOffline) },
+      }),
+    deliver: (id, code) => request(`/courier/orders/${id}/deliver`, { method: 'POST', body: { code } }),
+    shareLocation: (payload) => request('/courier/location', { method: 'POST', body: payload }),
+    sos: (payload) => request('/courier/sos', { method: 'POST', body: payload }),
+    pins: () => request('/courier/pins'),
+    wallet: () => request('/courier/wallet'),
+    requestPayout: (amountCents) =>
+      request('/courier/payouts', { method: 'POST', body: { amountCents } }),
+  },
+
+  admin: {
+    overview: () => request('/admin/overview'),
+    updateSettings: (payload) => request('/admin/settings', { method: 'PUT', body: payload }),
+    stores: () => request('/admin/stores'),
+    createStore: (payload) => request('/admin/stores', { method: 'POST', body: payload }),
+    updateStore: (id, payload) => request(`/admin/stores/${id}`, { method: 'PATCH', body: payload }),
+    deleteStore: (id) => request(`/admin/stores/${id}`, { method: 'DELETE' }),
+    products: (storeId) => request(`/admin/products${storeId ? `?storeId=${storeId}` : ''}`),
+    createProduct: (payload) => request('/admin/products', { method: 'POST', body: payload }),
+    updateProduct: (id, payload) => request(`/admin/products/${id}`, { method: 'PATCH', body: payload }),
+    deleteProduct: (id) => request(`/admin/products/${id}`, { method: 'DELETE' }),
+    orders: (params = {}) => {
+      const query = new URLSearchParams(
+        Object.entries(params).filter(([, value]) => value !== undefined && value !== ''),
+      ).toString();
+      return request(`/admin/orders${query ? `?${query}` : ''}`);
+    },
+    cancelOrder: (id, reason) =>
+      request(`/admin/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
+    users: (q) => request(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    ban: (id, payload) => request(`/admin/users/${id}/ban`, { method: 'POST', body: payload }),
+    unban: (id) => request(`/admin/users/${id}/unban`, { method: 'POST' }),
+    crm: () => request('/admin/crm'),
+    sos: () => request('/admin/sos'),
+    ackSos: (id) => request(`/admin/sos/${id}/ack`, { method: 'POST' }),
+    payouts: () => request('/admin/payouts'),
+    payPayout: (id) => request(`/admin/payouts/${id}/pay`, { method: 'POST' }),
+    testPush: () => request('/admin/push/test', { method: 'POST' }),
+  },
+};

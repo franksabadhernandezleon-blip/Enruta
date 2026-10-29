@@ -1,4 +1,6 @@
 const EARTH_RADIUS_KM = 6371;
+const TILE_SIZE = 256;
+const WORLD_METERS = 40075016.686;
 
 // Centro de operaciones: Caripito, Monagas.
 export const CARIPITO = { lat: 10.1447, lng: -63.1013 };
@@ -27,24 +29,88 @@ export const mapsLink = (point) =>
 export const whatsappLink = (phone, message) =>
   `https://wa.me/${String(phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
 
-// Convierte el punto tocado en el mapa a coordenadas dentro del área de Caripito.
-export const pointFromClick = (event, element, spanKm = 6) => {
-  const rect = element.getBoundingClientRect();
-  const x = (event.clientX - rect.left) / rect.width;
-  const y = (event.clientY - rect.top) / rect.height;
-  const latSpan = spanKm / 111;
-  const lngSpan = latSpan / Math.max(0.2, Math.cos(toRadians(CARIPITO.lat)));
+/* ------------------------- Proyección Web Mercator ------------------------- */
+// El fondo del mapa son tiles de OpenStreetMap, así que los pines se ubican con
+// la misma proyección que los tiles: lo que se ve y lo que se toca coinciden.
+
+const worldSize = (zoom) => TILE_SIZE * 2 ** zoom;
+
+const project = (lat, lng, zoom) => {
+  const size = worldSize(zoom);
+  const safeLat = Math.max(-85.05112878, Math.min(85.05112878, Number(lat) || 0));
+  const radians = toRadians(safeLat);
   return {
-    lat: Number((CARIPITO.lat + (0.5 - y) * latSpan).toFixed(5)),
-    lng: Number((CARIPITO.lng + (x - 0.5) * lngSpan).toFixed(5)),
+    x: ((Number(lng) + 180) / 360) * size,
+    y: ((1 - Math.log(Math.tan(radians) + 1 / Math.cos(radians)) / Math.PI) / 2) * size,
   };
 };
 
-export const relativePosition = (point, spanKm = 6) => {
-  const latSpan = spanKm / 111;
-  const lngSpan = latSpan / Math.max(0.2, Math.cos(toRadians(CARIPITO.lat)));
+const unproject = (x, y, zoom) => {
+  const size = worldSize(zoom);
+  const n = Math.PI - (2 * Math.PI * y) / size;
   return {
-    left: `${((1 + (Number(point.lng) - CARIPITO.lng) / lngSpan) / 2) * 100}%`,
-    top: `${((1 - (Number(point.lat) - CARIPITO.lat) / latSpan) / 2) * 100}%`,
+    lat: Number(((180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)))).toFixed(5)),
+    lng: Number((((x / size) * 360) - 180).toFixed(5)),
   };
+};
+
+/**
+ * Encuadre del mapa: zoom y rectángulo (en píxeles de mundo) que cubren
+ * `spanKm` de ancho con el aspecto del contenedor.
+ */
+export const mapView = ({ center = CARIPITO, spanKm = 6, aspect = 1.6 } = {}) => {
+  const span = Math.max(0.5, Number(spanKm) || 6);
+  const lat = Number(center?.lat ?? CARIPITO.lat);
+  const lng = Number(center?.lng ?? CARIPITO.lng);
+  const metersAtLatitude = WORLD_METERS * Math.cos(toRadians(lat));
+  const metersPerPixel = (span * 1000) / 900;
+  const zoom = Math.max(11, Math.min(17, Math.round(Math.log2(metersAtLatitude / (metersPerPixel * TILE_SIZE)))));
+  const width = (span * 1000) / (metersAtLatitude / worldSize(zoom));
+  const height = width / aspect;
+  const middle = project(lat, lng, zoom);
+  return { zoom, width, height, x: middle.x - width / 2, y: middle.y - height / 2 };
+};
+
+/** Tiles que cubren la vista, con su posición y tamaño en % del contenedor. */
+export const mapTiles = (view) => {
+  if (!view) return [];
+  const limit = 2 ** view.zoom;
+  const minX = Math.floor(view.x / TILE_SIZE);
+  const maxX = Math.floor((view.x + view.width) / TILE_SIZE);
+  const minY = Math.max(0, Math.floor(view.y / TILE_SIZE));
+  const maxY = Math.min(limit - 1, Math.floor((view.y + view.height) / TILE_SIZE));
+
+  const tiles = [];
+  for (let ty = minY; ty <= maxY; ty += 1) {
+    for (let tx = minX; tx <= maxX; tx += 1) {
+      const wrapped = ((tx % limit) + limit) % limit;
+      tiles.push({
+        key: `${view.zoom}-${tx}-${ty}`,
+        url: `https://tile.openstreetmap.org/${view.zoom}/${wrapped}/${ty}.png`,
+        left: `${((tx * TILE_SIZE - view.x) / view.width) * 100}%`,
+        top: `${((ty * TILE_SIZE - view.y) / view.height) * 100}%`,
+        width: `${(TILE_SIZE / view.width) * 100}%`,
+        height: `${(TILE_SIZE / view.height) * 100}%`,
+      });
+    }
+  }
+  return tiles;
+};
+
+/** Posición en % (left/top) de un punto dentro de la vista. */
+export const viewPosition = (point, view) => {
+  if (!point || !view) return { left: '50%', top: '50%' };
+  const projected = project(point.lat, point.lng, view.zoom);
+  return {
+    left: `${((projected.x - view.x) / view.width) * 100}%`,
+    top: `${((projected.y - view.y) / view.height) * 100}%`,
+  };
+};
+
+/** Coordenadas que corresponden al punto tocado dentro del mapa. */
+export const pointAt = (clientX, clientY, element, view) => {
+  const rect = element.getBoundingClientRect();
+  const xRatio = (clientX - rect.left) / rect.width;
+  const yRatio = (clientY - rect.top) / rect.height;
+  return unproject(view.x + xRatio * view.width, view.y + yRatio * view.height, view.zoom);
 };

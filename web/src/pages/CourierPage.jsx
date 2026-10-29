@@ -473,6 +473,7 @@ export default function CourierPage() {
                     point={{ lat: Number(active.lat), lng: Number(active.lng) }}
                     markers={active.stops.map((stop) => ({ id: stop.id, name: stop.storeName, lat: stop.lat, lng: stop.lng }))}
                     label="Entrega"
+                    readOnly
                   />
                 </Section>
               </>
