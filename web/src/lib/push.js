@@ -5,6 +5,8 @@ export const pushSupported = () =>
 
 export const registerServiceWorker = async () => {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return null;
+  if (window.location.pathname.startsWith('/login')) return null;
+
   try {
     return await navigator.serviceWorker.register('/sw.js', { scope: '/' });
   } catch {
