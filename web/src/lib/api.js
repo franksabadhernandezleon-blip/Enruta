@@ -121,12 +121,26 @@ export const api = {
   orderProofs: (code) => request(`/orders/${code}/proofs`),
   addOrderProof,
 
+  addresses: {
+    list: () => request('/addresses'),
+    create: (payload) => request('/addresses', { method: 'POST', body: payload }),
+    update: (id, payload) => request(`/addresses/${id}`, { method: 'PATCH', body: payload }),
+    setDefault: (id) => request(`/addresses/${id}/default`, { method: 'PATCH' }),
+    delete: (id) => request(`/addresses/${id}`, { method: 'DELETE' }),
+  },
+
+  products: {
+    create: (payload) => request('/products', { method: 'POST', body: payload }),
+    update: (id, payload) => request(`/products/${id}`, { method: 'PATCH', body: payload }),
+    delete: (id) => request(`/products/${id}`, { method: 'DELETE' }),
+  },
+
   owner: {
     store: () => request('/owner/store'),
     updateStore: (payload) => request('/owner/store', { method: 'PUT', body: payload }),
-    createProduct: (payload) => request('/owner/products', { method: 'POST', body: payload }),
-    updateProduct: (id, payload) => request(`/owner/products/${id}`, { method: 'PATCH', body: payload }),
-    deleteProduct: (id) => request(`/owner/products/${id}`, { method: 'DELETE' }),
+    createProduct: (payload) => request('/products', { method: 'POST', body: payload }),
+    updateProduct: (id, payload) => request(`/products/${id}`, { method: 'PATCH', body: payload }),
+    deleteProduct: (id) => request(`/products/${id}`, { method: 'DELETE' }),
     orders: () => request('/owner/orders'),
     proofs: () => request('/owner/proofs'),
     release: (orderId, pin) =>

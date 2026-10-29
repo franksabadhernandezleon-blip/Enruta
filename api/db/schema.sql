@@ -216,6 +216,26 @@ CREATE TABLE IF NOT EXISTS payment_proofs (
   expires_at timestamptz NOT NULL DEFAULT now() + interval '7 days'
 );
 
+-- Direcciones guardadas por los clientes.
+CREATE TABLE IF NOT EXISTS addresses (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  label        text NOT NULL CHECK (label IN ('Casa','Trabajo','Otro')),
+  address_text text NOT NULL,
+  reference    text,
+  lat          double precision NOT NULL,
+  lng          double precision NOT NULL,
+  is_default   boolean NOT NULL DEFAULT false,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS addresses_user_id_idx ON addresses (user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS addresses_user_default_idx ON addresses (user_id) WHERE is_default = true;
+
+-- Columnas opcionales de dirección en pedidos.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS address_id uuid REFERENCES addresses(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS reference text;
+
 CREATE INDEX IF NOT EXISTS orders_status_idx ON orders (status);
 CREATE INDEX IF NOT EXISTS order_items_order_idx ON order_items (order_id);
 CREATE INDEX IF NOT EXISTS order_stops_order_idx ON order_stops (order_id);

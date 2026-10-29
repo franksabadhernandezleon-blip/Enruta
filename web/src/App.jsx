@@ -3,6 +3,7 @@ import ClientTabBar from './components/ClientTabBar.jsx';
 import { Spinner } from './components/ui.jsx';
 import { useAuth } from './lib/auth.jsx';
 import AccountPage from './pages/AccountPage.jsx';
+import AddressesPage from './pages/AddressesPage.jsx';
 import AdminPage from './pages/AdminPage.jsx';
 import CartPage from './pages/CartPage.jsx';
 import CatalogPage from './pages/CatalogPage.jsx';
@@ -51,6 +52,14 @@ export default function App() {
           element={
             <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
               <CheckoutPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/cuenta/direcciones"
+          element={
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+              <AddressesPage />
             </Guard>
           }
         />

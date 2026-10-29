@@ -97,6 +97,8 @@ con `DATABASE_URL`; no hace falta `@supabase/supabase-js` ni mover el esquema).
 
 ## Mapa y ubicación del pedido
 
+- **Mapas y Geocodificación (OpenStreetMap + Nominatim + OSRM):** 100% gratuito y sin claves de API ni tarjetas de crédito. El backend expone enrutadores proxy `/api/geo/geocode`, `/api/geo/reverse` y `/api/geo/route` con un User-Agent propio (`Enruta/1.0`) y un rate limiter (1 req/s por IP) para cumplir las políticas de Nominatim y OSRM. Los mapas del cliente se renderizan con `react-leaflet`.
+
 - **Fondo real de mapa.** `web/src/components/MapPicker.jsx` pinta los tiles de OpenStreetMap
   (`tile.openstreetmap.org`, sin clave ni dependencias nuevas) con la atribución visible. Los pide el
   navegador; si no cargan, se ocultan solos y queda la retícula de respaldo del componente.

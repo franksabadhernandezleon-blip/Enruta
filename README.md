@@ -66,6 +66,9 @@ dashboard): `ADMIN_EMAIL` (tu correo; esa cuenta nace admin), `VAPID_PUBLIC_KEY`
 `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (Web Push) y `GOOGLE_CLIENT_ID` (login con Google). `JWT_SECRET`
 lo genera Render y `DATABASE_URL` sale de la base del Blueprint.
 
+**Geocodificación y Mapas:**
+Se utilizan los servicios públicos gratuitos de **OpenStreetMap**, **Nominatim** y **OSRM** mediante el proxy backend `/api/geo` (sin API keys ni costos).
+
 Antes de abrirlo al público:
 
 - El disco persistente y `preDeployCommand` requieren instancias de pago; revisa el plan elegido.
