@@ -66,6 +66,8 @@ dashboard): `ADMIN_EMAIL` (tu correo; esa cuenta nace admin), `VAPID_PUBLIC_KEY`
 `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (Web Push), `GOOGLE_CLIENT_ID` (login con Google) y `VITE_GOOGLE_MAPS_API_KEY` (Google Maps). `JWT_SECRET`
 lo genera Render y `DATABASE_URL` sale de la base del Blueprint.
 
+**Geocodificación y Mapas:**
+Se utilizan los servicios públicos gratuitos de **OpenStreetMap**, **Nominatim** y **OSRM** mediante el proxy backend `/api/geo` (sin API keys ni costos).
 **Seguridad de la clave de Google Maps (`VITE_GOOGLE_MAPS_API_KEY`):**
 En Google Cloud Console, restringe la clave de API por:
 1. **HTTP Referrers:** Solo el dominio de producción de Render.

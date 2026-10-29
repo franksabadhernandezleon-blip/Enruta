@@ -149,6 +149,7 @@ export default function StoreAdminPage() {
     setError('');
     try {
       const payload = {
+        storeId: store?.id,
         name: draft.name,
         description: draft.description,
         price: draft.price,
@@ -158,8 +159,8 @@ export default function StoreAdminPage() {
         requiresConfirmation: draft.requiresConfirmation,
         position: Number(draft.position) || 1,
       };
-      if (editor.product) await api.owner.updateProduct(editor.product.id, payload);
-      else await api.owner.createProduct(payload);
+      if (editor.product) await api.products.update(editor.product.id, payload);
+      else await api.products.create(payload);
       setEditor({ open: false, product: null });
       await load();
     } catch (requestError) {
@@ -192,6 +193,50 @@ export default function StoreAdminPage() {
         <p className="muted pad">
           <Spinner /> Cargando tu tienda…
         </p>
+      </div>
+    );
+  }
+
+  if (status === 'error' && !store) {
+    return (
+      <div className="admin-shell">
+        <header className="admin-header">
+          <div className="brand">
+            <span className="brand-logo">
+              <StoreIcon size={20} aria-hidden="true" />
+            </span>
+            <span className="brand-text">
+              <strong>Mi tienda</strong>
+              <small>/mitienda · panel del dueño</small>
+            </span>
+          </div>
+          <div className="admin-header-actions">
+            <span className="muted small">{user?.email}</span>
+            <Link to="/" className="btn btn-ghost btn-sm">
+              Ir al inicio
+            </Link>
+          </div>
+        </header>
+        <main className="admin-main pad">
+          <Alert tone="error">
+            {error || 'No tienes una tienda asignada, contacta al administrador'}
+          </Alert>
+          <div className="card pad align-center" style={{ marginTop: '1rem' }}>
+            <StoreIcon size={48} className="muted" style={{ margin: '1rem auto' }} />
+            <h2>Sin tienda asignada</h2>
+            <p className="muted">
+              Tu cuenta ({user?.email}) aún no tiene una tienda vinculada en el sistema.
+            </p>
+            <p className="muted small">
+              Solicita al administrador en /tuteteno que agregue tu correo como dueño de la tienda.
+            </p>
+            <div className="page-actions" style={{ justifyContent: 'center', marginTop: '1rem' }}>
+              <button type="button" className="btn btn-primary" onClick={load}>
+                <RefreshCw size={15} aria-hidden="true" /> Reintentar
+              </button>
+            </div>
+          </div>
+        </main>
       </div>
     );
   }
@@ -507,7 +552,7 @@ export default function StoreAdminPage() {
                         <button
                           type="button"
                           className="btn btn-icon btn-danger"
-                          onClick={() => api.owner.deleteProduct(product.id).then(load)}
+                          onClick={() => api.products.delete(product.id).then(load)}
                           aria-label={`Eliminar ${product.name}`}
                         >
                           <Trash2 size={15} aria-hidden="true" />
