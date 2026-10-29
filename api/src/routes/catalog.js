@@ -140,7 +140,13 @@ router.post('/quote', async (req, res, next) => {
         storeId: line.storeId,
         storeName: line.storeName,
       })),
-      stops: built.stops.map((stop) => ({ storeId: stop.storeId, storeName: stop.storeName })),
+      // Las coordenadas de la tienda permiten dibujar las paradas en el mapa del checkout.
+      stops: built.stops.map((stop) => ({
+        storeId: stop.storeId,
+        storeName: stop.storeName,
+        lat: Number(stop.lat),
+        lng: Number(stop.lng),
+      })),
       subtotalCents: built.subtotalCents,
       deliveryCents: built.deliveryCents,
       totalCents: built.totalCents,
