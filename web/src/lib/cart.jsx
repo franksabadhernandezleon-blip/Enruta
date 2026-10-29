@@ -7,7 +7,10 @@ const read = () => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // Carritos guardados con un formato viejo pueden traer líneas sin producto:
+    // se descartan para no enviar ids vacíos al servidor.
+    return parsed.filter((line) => line && typeof line.productId === 'string' && line.productId.trim());
   } catch {
     return [];
   }

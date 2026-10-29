@@ -76,9 +76,15 @@ export const canSeeProof = async ({ proof, user }) => {
 };
 
 export const purgeExpiredProofs = async () => {
-  const { rows } = await query('DELETE FROM payment_proofs WHERE expires_at <= now() RETURNING file_name');
-  await Promise.all(rows.map((row) => fs.unlink(proofPath(row.file_name)).catch(() => {})));
-  return rows.length;
+  try {
+    const { rows } = await query('DELETE FROM payment_proofs WHERE expires_at <= now() RETURNING file_name');
+    await Promise.all(rows.map((row) => fs.unlink(proofPath(row.file_name)).catch(() => {})));
+    return rows.length;
+  } catch (error) {
+    // La tabla la crea la migración: si la API arranca antes, se reintenta en la próxima vuelta.
+    if (error?.code === '42P01') return 0;
+    throw error;
+  }
 };
 
 // Se ejecuta al arrancar y cada hora: los comprobantes viejos no quedan en disco.

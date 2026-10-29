@@ -8,6 +8,8 @@ import { getSettings } from './settings.js';
 
 const pin4 = () => String(randomInt(1000, 10000));
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const nextOrderCode = async () => {
   const { rows } = await query("SELECT nextval('order_code_seq') AS value");
   return `ENR-${rows[0].value}`;
@@ -35,7 +37,11 @@ export const quoteCart = async ({ cart = [], destination, dynamic = false }) => 
   }
 
   const settings = await getSettings();
-  const productIds = cart.map((line) => String(line.productId));
+  // Solo ids con forma de uuid: un carrito viejo puede traer líneas sin producto.
+  const productIds = cart.map((line) => String(line?.productId ?? '').trim()).filter((id) => UUID_RE.test(id));
+  if (!productIds.length) {
+    throw httpError(400, 'Los productos de tu carrito ya no están disponibles. Vuelve a agregarlos desde el catálogo.');
+  }
   const { rows: products } = await query(
     `SELECT p.*, s.name AS store_name, s.slug AS store_slug, s.lat AS store_lat, s.lng AS store_lng,
             s.address AS store_address, s.phone AS store_phone, s.owner_email, s.open AS store_open
@@ -71,6 +77,8 @@ export const quoteCart = async ({ cart = [], destination, dynamic = false }) => 
       lineTotalCents: product.price_cents * qty,
     });
   }
+
+  if (!lines.length) throw httpError(400, 'Los productos de tu carrito ya no están disponibles.');
 
   const stops = [];
   for (const line of lines) {
