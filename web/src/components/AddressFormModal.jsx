@@ -3,6 +3,7 @@ import { MapPin, Navigation, X } from 'lucide-react';
 import { Alert, Field, Spinner } from './ui.jsx';
 import { api } from '../lib/api.js';
 import { geocodeAddress, reverseGeocode } from '../lib/geo.js';
+import { geocodeAddress, reverseGeocode } from '../lib/geocoding.js';
 
 const LABELS = [
   { value: 'Casa', label: 'Casa' },

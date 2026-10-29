@@ -98,6 +98,9 @@ con `DATABASE_URL`; no hace falta `@supabase/supabase-js` ni mover el esquema).
 ## Mapa y ubicación del pedido
 
 - **Mapas y Geocodificación (OpenStreetMap + Nominatim + OSRM):** 100% gratuito y sin claves de API ni tarjetas de crédito. El backend expone enrutadores proxy `/api/geo/geocode`, `/api/geo/reverse` y `/api/geo/route` con un User-Agent propio (`Enruta/1.0`) y un rate limiter (1 req/s por IP) para cumplir las políticas de Nominatim y OSRM. Los mapas del cliente se renderizan con `react-leaflet`.
+- **Google Maps API Key (`VITE_GOOGLE_MAPS_API_KEY`).** Se configura en las variables de entorno de Render (o `.env` local). Debe restringirse en la consola de Google Cloud por:
+  1. **HTTP Referrers (restricción de sitio web):** Solo los dominios de la aplicación en Render (ej. `https://*.onrender.com/*`).
+  2. **Restricción de API:** Permitir únicamente las 3 APIs necesarias: **Geocoding API**, **Directions API** y **Maps JavaScript API**.
 
 - **Fondo real de mapa.** `web/src/components/MapPicker.jsx` pinta los tiles de OpenStreetMap
   (`tile.openstreetmap.org`, sin clave ni dependencias nuevas) con la atribución visible. Los pide el
