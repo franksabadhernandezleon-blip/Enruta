@@ -8,7 +8,9 @@ import { ConfigProvider } from './lib/config.jsx';
 import { registerServiceWorker } from './lib/push.js';
 import './styles.css';
 
-registerServiceWorker();
+if (!window.location.pathname.startsWith('/login')) {
+  registerServiceWorker();
+}
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
