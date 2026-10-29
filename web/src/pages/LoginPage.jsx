@@ -17,7 +17,7 @@ export default function LoginPage() {
 
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
     if (!clientId) {
-      setError('Falta VITE_GOOGLE_CLIENT_ID en Render. Rehace el deploy del servicio web.');
+      setError('Falta VITE_GOOGLE_CLIENT_ID en Render. Haz redeploy del servicio web.');
       return;
     }
 
@@ -59,7 +59,7 @@ export default function LoginPage() {
           });
         }
       } catch (err) {
-        console.error(err);
+        console.error('Error inicializando Google Login:', err);
         setError('Error al inicializar Google Login.');
       }
     };
