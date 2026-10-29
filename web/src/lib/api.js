@@ -75,6 +75,31 @@ const uploadImage = (file) => {
   return request('/uploads', { method: 'POST', formData });
 };
 
+// El comprobante va dentro del pedido: el servidor lo guarda privado y lo borra a la semana.
+const createOrder = (payload, proofFile) => {
+  if (!proofFile) return request('/orders', { method: 'POST', body: payload });
+  const formData = new FormData();
+  formData.append('payload', JSON.stringify(payload));
+  formData.append('proof', proofFile);
+  return request('/orders', { method: 'POST', formData });
+};
+
+const addOrderProof = (code, file) => {
+  const formData = new FormData();
+  formData.append('image', file);
+  return request(`/orders/${code}/proofs`, { method: 'POST', formData });
+};
+
+// La foto es privada: se pide con el token y se muestra como blob local.
+export const loadProofPhoto = async (id) => {
+  const token = getToken();
+  const response = await fetch(`/api/proofs/${id}/photo`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new ApiError('No pudimos cargar el comprobante.', response.status);
+  return URL.createObjectURL(await response.blob());
+};
+
 export const api = {
   config: () => request('/config'),
   register: (payload) => request('/auth/register', { method: 'POST', body: payload }),
@@ -90,9 +115,11 @@ export const api = {
   stores: () => request('/stores'),
   store: (slug) => request(`/stores/${slug}`),
   quote: (payload) => request('/quote', { method: 'POST', body: payload }),
-  createOrder: (payload) => request('/orders', { method: 'POST', body: payload }),
+  createOrder,
   order: (code) => request(`/orders/${code}`),
   myOrders: () => request('/orders/mine'),
+  orderProofs: (code) => request(`/orders/${code}/proofs`),
+  addOrderProof,
 
   owner: {
     store: () => request('/owner/store'),
@@ -101,6 +128,7 @@ export const api = {
     updateProduct: (id, payload) => request(`/owner/products/${id}`, { method: 'PATCH', body: payload }),
     deleteProduct: (id) => request(`/owner/products/${id}`, { method: 'DELETE' }),
     orders: () => request('/owner/orders'),
+    proofs: () => request('/owner/proofs'),
     release: (orderId, pin) =>
       request(`/owner/orders/${orderId}/release`, { method: 'POST', body: { pin } }),
     releaseCourier: (orderId) =>

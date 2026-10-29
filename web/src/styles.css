@@ -1990,3 +1990,49 @@ textarea {
 .map.is-static .map-pin {
   cursor: default;
 }
+
+/* ------------------------- Comprobantes de pago ------------------------- */
+
+.proof-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.proof-link {
+  display: block;
+  line-height: 0;
+}
+
+.proof-photo {
+  display: block;
+  width: 104px;
+  height: 104px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.proof-photo.is-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 104px;
+  height: 104px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.proof-preview {
+  display: block;
+  max-width: 220px;
+  max-height: 220px;
+  object-fit: contain;
+  margin: 8px 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+}

@@ -37,6 +37,9 @@ services:
           property: connectionString
       - key: UPLOAD_DIR
         value: /var/data/uploads
+      # Comprobantes de pago: privados y con borrado automático a la semana.
+      - key: PROOF_DIR
+        value: /var/data/proofs
       # Render genera un secreto real: en desarrollo el JWT viene del placeholder local.
       - key: JWT_SECRET
         generateValue: true

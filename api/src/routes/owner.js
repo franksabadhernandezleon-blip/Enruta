@@ -8,6 +8,7 @@ import {
   releaseCourierByDelay,
   releaseStop,
 } from '../orders.js';
+import { listStoreProofs, serializeProof } from '../proofs.js';
 
 const router = Router();
 
@@ -225,6 +226,24 @@ router.delete('/products/:id', requireStore, async (req, res, next) => {
 });
 
 // Pedidos que tocan mi tienda, con el estado de mi parada.
+// Comprobantes de pago de los pedidos que pasan por esta tienda: número de pedido y
+// foto. Solo los vigentes (una semana); los vencidos se borran solos.
+router.get('/proofs', requireStore, async (req, res, next) => {
+  try {
+    const proofs = await listStoreProofs(req.store.id);
+    res.json({
+      proofs: proofs.map((proof) => ({
+        ...serializeProof(proof),
+        paymentMethod: proof.payment_method,
+        totalCents: proof.total_cents,
+        customerName: proof.customer_name,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/orders', requireStore, async (req, res, next) => {
   try {
     const { rows } = await query(

@@ -10,6 +10,7 @@ import authRoutes from './routes/auth.js';
 import catalogRoutes from './routes/catalog.js';
 import courierRoutes from './routes/courier.js';
 import ownerRoutes from './routes/owner.js';
+import { startProofCleanup } from './proofs.js';
 import { imageUpload } from './uploads.js';
 
 const app = express();
@@ -100,6 +101,9 @@ app.use((error, req, res, next) => {
     error: status >= 500 ? 'Ocurrió un error inesperado. Inténtalo de nuevo.' : error.message,
   });
 });
+
+// Los comprobantes de pago caducan a la semana: se borran solos de la base y del disco.
+startProofCleanup();
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`[api] ENRUTA escuchando en http://0.0.0.0:${port}`);

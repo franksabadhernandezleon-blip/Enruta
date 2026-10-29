@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { BellRing, Bike, MapPin, Phone, Plus, RefreshCw, Save, Store as StoreIcon, Trash2, Volume2 } from 'lucide-react';
 import MapPicker from '../components/MapPicker.jsx';
 import PhotoInput from '../components/PhotoInput.jsx';
+import ProofPhoto from '../components/ProofPhoto.jsx';
 import { Alert, Field, Modal, Section, Spinner, StatusPill, Toggle } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
@@ -29,6 +30,7 @@ export default function StoreAdminPage() {
   const [store, setStore] = useState(null);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [proofs, setProofs] = useState([]);
   const [stats, setStats] = useState(null);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
@@ -42,14 +44,16 @@ export default function StoreAdminPage() {
 
   const load = useCallback(async () => {
     try {
-      const [storeData, orderData, statsData] = await Promise.all([
+      const [storeData, orderData, statsData, proofData] = await Promise.all([
         api.owner.store(),
         api.owner.orders(),
         api.owner.stats(),
+        api.owner.proofs(),
       ]);
       setStore(storeData.store);
       setProducts(storeData.products);
       setOrders(orderData.orders);
+      setProofs(proofData.proofs);
       setStats(statsData.stats);
       setStatus('ready');
     } catch (requestError) {
@@ -422,6 +426,37 @@ export default function StoreAdminPage() {
                 </li>
               ))}
               {!orders.length && <li className="muted">Sin pedidos activos por ahora.</li>}
+            </ul>
+          </Section>
+
+          <Section
+            title="Comprobantes de pago"
+            subtitle="Solo fotos que envía el cliente. Cada una se borra sola a la semana"
+            actions={
+              <button type="button" className="btn btn-ghost btn-sm" onClick={load}>
+                Actualizar
+              </button>
+            }
+          >
+            <ul className="admin-list">
+              {proofs.map((proof) => (
+                <li key={proof.id}>
+                  <div className="admin-row-main">
+                    <div>
+                      <strong>Pedido {proof.orderCode}</strong>
+                      <span className="muted">
+                        {proof.customerName || 'Cliente'} · {proof.paymentMethod || 'Pago'} ·{' '}
+                        {formatUsd(proof.totalCents)} · {formatDate(proof.createdAt)}
+                      </span>
+                    </div>
+                    <ProofPhoto proofId={proof.id} alt={`Comprobante del pedido ${proof.orderCode}`} />
+                    <span className="status status-pending">
+                      Se borra en {proof.daysLeft} día{proof.daysLeft === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                </li>
+              ))}
+              {!proofs.length && <li className="muted">Todavía no hay comprobantes de pago.</li>}
             </ul>
           </Section>
 
