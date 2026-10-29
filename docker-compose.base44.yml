@@ -1,6 +1,9 @@
 name: enruta
 
 services:
+  # Postgres local de RESPALDO: la base real es Supabase y su URL llega como secreto
+  # DATABASE_URL por /run/base44/app.env. Este servicio solo se usa cuando el dashboard
+  # todavía no tiene DATABASE_URL, para que el preview arranque igual.
   db:
     image: postgres:16
     restart: on-failure
@@ -16,15 +19,16 @@ services:
       timeout: 3s
       retries: 20
 
-  # One-shot schema + demo data. Exits once the database is ready.
+  # One-shot: aplica api/db/schema.sql (idempotente) y siembra la demo si `users` está vacía.
+  # Corre contra el DATABASE_URL vigente: Supabase si el dashboard lo definió, si no el db local.
   migrate:
     image: node:22
     working_dir: /app
     restart: "no"
     env_file:
       - ./.env.base44-defaults
-    environment:
-      DATABASE_URL: postgres://enruta:enruta_dev_password@db:5432/enruta
+      - path: /run/base44/app.env
+        required: false
     volumes:
       - ./api:/app
       - enruta_api_modules:/app/node_modules
@@ -48,7 +52,6 @@ services:
     environment:
       NODE_ENV: development
       PORT: 8000
-      DATABASE_URL: postgres://enruta:enruta_dev_password@db:5432/enruta
       UPLOAD_DIR: /app/uploads
       PROOF_DIR: /app/proofs
       BASE44_PREVIEW_MODE: ${BASE44_PREVIEW_MODE:-}
