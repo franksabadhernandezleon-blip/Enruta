@@ -105,10 +105,18 @@ router.post('/google', async (req, res, next) => {
     if (!googleClient) {
       throw httpError(503, 'El acceso con Google aún no está configurado (falta GOOGLE_CLIENT_ID).');
     }
+
     const credential = String(req.body?.credential || '');
     if (!credential) throw httpError(400, 'No recibimos el token de Google.');
 
-    const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: googleClientId });
+    console.log('[google-login] GOOGLE_CLIENT_ID:', googleClientId);
+    console.log('[google-login] credential length:', credential.length);
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: googleClientId,
+    });
+
     const payload = ticket.getPayload() || {};
     const email = String(payload.email || '').toLowerCase();
     if (!email) throw httpError(400, 'Tu cuenta de Google no tiene correo verificado.');
@@ -130,6 +138,10 @@ router.post('/google', async (req, res, next) => {
     user = await linkRoleForEmail(user);
     res.json(await session(user, publicStore(await loadOwnStore(user))));
   } catch (error) {
+    console.error('[google-login] FULL ERROR:', error);
+    console.error('[google-login] MESSAGE:', error?.message);
+    console.error('[google-login] STACK:', error?.stack);
+
     if (error.status) return next(error);
     next(httpError(401, 'No pudimos validar tu cuenta de Google.'));
   }
