@@ -4,6 +4,11 @@
   "startCommand": "docker compose -f docker-compose.base44.yml up -d",
   "secrets": [
     {
+      "name": "DATABASE_URL",
+      "description": "Cadena de conexión Postgres del proyecto de Supabase (Supabase → Project Settings → Database → Connection string). Usa el Session pooler (host *.pooler.supabase.com, puerto 5432) e incluye la contraseña de la base; los contenedores del sandbox no tienen IPv6, así que la conexión directa db.<ref>.supabase.co no sirve. Sin este valor el preview usa el Postgres local de respaldo.",
+      "requiredAtBoot": false
+    },
+    {
       "name": "GOOGLE_CLIENT_ID",
       "description": "Client ID de Google Cloud (OAuth web) para el botón \"Entrar con Google\". Opcional: sin él la app arranca y el login por correo/contraseña funciona; la API responde 503 en /api/auth/google.",
       "requiredAtBoot": false

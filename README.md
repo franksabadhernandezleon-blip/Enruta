@@ -16,7 +16,8 @@ catálogo y sube las fotos de sus productos directamente desde el panel.
 
 - **Frontend:** React 18 + Vite (servidor de desarrollo con recarga en caliente), React Router.
 - **API:** Node 22 + Express, autenticación con JWT y contraseñas con bcrypt; subidas con multer.
-- **Base de datos:** Postgres 16 (esquema en `api/db/schema.sql`).
+- **Base de datos:** Supabase (Postgres gestionado) en desarrollo y producción; el compose trae un
+  Postgres 16 local solo como respaldo. Esquema en `api/db/schema.sql`.
 - Todo corre en contenedores con `docker-compose.base44.yml`.
 
 ## Arrancar
@@ -77,6 +78,11 @@ Antes de abrirlo al público:
 
 - `JWT_SECRET` se toma de `.env.base44-defaults` (placeholder de desarrollo). Cualquier valor que se
   configure en el dashboard llega por `/run/base44/app.env` y tiene prioridad.
-- Migrar a un proyecto alojado de Supabase implica reemplazar el cliente de `web/src/lib/api.js` por
-  `@supabase/supabase-js` y mover el esquema a `supabase/migrations`; requiere las claves del proyecto.
+- **Base de datos en Supabase:** la API habla Postgres con `pg`, así que basta definir el secreto
+  `DATABASE_URL` con la cadena de conexión del proyecto (Supabase → Project Settings → Database →
+  Connection string → **Session pooler**, `aws-0-<región>.pooler.supabase.com:5432`; la conexión directa
+  `db.<ref>.supabase.co` es IPv6 y no funciona desde los contenedores). Ese valor llega por
+  `/run/base44/app.env` y gana sobre el respaldo local de `.env.base44-defaults`. Al arrancar, `migrate`
+  aplica el esquema idempotente (y la demo solo si `users` está vacía; `SEED_DEMO=0` la desactiva). No se
+  usa `@supabase/supabase-js`.
 - Detalles de entorno y verificación: `AGENTS.md`.

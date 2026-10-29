@@ -12,7 +12,7 @@ BCV congelada en el recibo, paneles de admin/dueño/motorizado y notificaciones 
 | --------- | ---------------------------------------------------------- | ----------- |
 | `web`     | Vite dev server (React 18) con recarga en caliente          | 3000        |
 | `api`     | Express + Postgres, `node --watch` (recarga al guardar)     | interno     |
-| `db`      | Postgres 16                                                 | interno     |
+| `db`      | Postgres 16 **de respaldo** (solo si no hay `DATABASE_URL`) | interno     |
 | `migrate` | One-shot: aplica `api/db/schema.sql` y siembra la demo      | —           |
 
 ```bash
@@ -35,6 +35,37 @@ docker compose -f docker-compose.base44.yml restart api
 volumen. Sin ese paso, `npm ci` aborta por lockfile desincronizado y la API queda caída con
 `ERR_MODULE_NOT_FOUND`; `node --watch` no reinstala dependencias por sí solo.
 
+## Base de datos: Supabase
+
+La base real del proyecto es **Supabase** (es un Postgres normal, así que la API sigue hablando `pg`
+con `DATABASE_URL`; no hace falta `@supabase/supabase-js` ni mover el esquema).
+
+- **La URL es un secreto del dashboard** (`DATABASE_URL`), no un valor del repositorio. Se declara en
+  `.base44/environment.json` y llega por `/run/base44/app.env`, que es el **último** `env_file` de
+  `migrate` y `api`: por eso un valor del dashboard siempre gana sobre el respaldo local. Nunca poner
+  `DATABASE_URL` bajo `environment:` en el compose, o el valor del dashboard quedaría anulado para
+  siempre.
+- **Respaldo local.** `.env.base44-defaults` trae `DATABASE_URL=postgres://...@db:5432/enruta`, así que
+  el preview arranca aunque todavía no se haya cargado la conexión de Supabase; en cuanto se define el
+  secreto, `migrate` y `api` usan Supabase y el servicio `db` queda sin uso (se puede apagar).
+- **Qué cadena usar.** En Supabase → *Project Settings → Database → Connection string*, usa el
+  **Session pooler** (`aws-0-<región>.pooler.supabase.com:5432`). La conexión directa
+  `db.<ref>.supabase.co` es **solo IPv6** y los contenedores del sandbox no tienen IPv6: con esa URL la
+  API no conecta. Reemplaza `[YOUR-PASSWORD]` por la contraseña de la base.
+- **SSL.** `api/src/db.js` activa SSL en cualquier URL remota (`rejectUnauthorized: false`), que es lo
+  que Supabase exige; el respaldo local sigue sin SSL.
+- **El esquema lo aplica `migrate`.** El one-shot corre `api/db/schema.sql` (idempotente) contra el
+  `DATABASE_URL` vigente y siembra la demo solo si `users` está vacía. Apuntar el secreto a un proyecto
+  de Supabase vacío crea ahí las tablas y las cuentas demo; `SEED_DEMO=0` evita las cuentas/tiendas demo.
+  `dropPreviousDemo()` solo borra `products/stores/owners` cuando existe el esquema viejo (`owners` sin
+  `settings`), nunca un esquema nuevo.
+- **Diagnóstico.** `/health` hace `SELECT 1`: si Supabase no responde, el contenedor `api` queda
+  *unhealthy* y `migrate` no termina, así que el fallo se ve en `docker compose logs migrate`.
+  ```bash
+  docker compose -f docker-compose.base44.yml logs --tail=40 migrate
+  docker compose -f docker-compose.base44.yml exec -T api sh -c 'printenv DATABASE_URL >/dev/null && echo present || echo missing'
+  ```
+
 ## Detalles que no son obvios
 
 - **Un solo origen.** El navegador solo habla con el puerto 3000; Vite hace proxy de `/api` y
@@ -56,8 +87,9 @@ volumen. Sin ese paso, `npm ci` aborta por lockfile desincronizado y la API qued
   `googleClientId` de `/api/config` queda en null y la pantalla de login oculta el botón de Google
   (muestra el aviso de configuración en su lugar). El login por correo/contraseña funciona igual; para
   activar Google hay que definir `GOOGLE_CLIENT_ID` en los secretos de la app.
-- **SSL de Postgres.** `api/src/db.js` activa SSL solo con un `DATABASE_URL` remoto: la URL del compose
-  (`@db:5432`) o un `sslmode=disable` apagan el SSL. Render sigue exigiendo SSL, así que no se toca esa rama.
+- **SSL de Postgres.** `api/src/db.js` activa SSL solo con un `DATABASE_URL` remoto: la URL del respaldo
+  local (`@db:5432`) o un `sslmode=disable` apagan el SSL. Supabase y Render exigen SSL, así que no se toca
+  esa rama.
 - **Archivos reparados.** `api/src/server.js` y `web/src/lib/api.js` llegaron truncados a esta rama y
   `LoginPage` había perdido el formulario de correo/contraseña (quedaba solo el botón de Google). Se
   restauraron desde el historial (commits `181ac1c` y `aec753b`): sin eso la API no arrancaba y el cliente
