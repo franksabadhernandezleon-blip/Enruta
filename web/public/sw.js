@@ -38,7 +38,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Excluir login y cuenta del Service Worker para no romper la navegación de autenticación
+  // Excluir login y cuenta para no romper Google Identity
   if (request.mode === 'navigate') {
     const path = url.pathname;
     if (path === '/login' || path.startsWith('/login') || path === '/cuenta' || path.startsWith('/cuenta')) {
@@ -57,7 +57,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API: red primero.
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request)
@@ -82,7 +81,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // En desarrollo los módulos de Vite no se cachean
   if (isDevModule(url)) return;
 
   event.respondWith(
@@ -101,7 +99,6 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Web Push
 self.addEventListener('push', (event) => {
   let data = {};
   try {
