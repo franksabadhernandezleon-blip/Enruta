@@ -7,3 +7,5 @@ export const pool = new pg.Pool({
   },
   max: 10,
 });
+
+export const query = (text, params = []) => pool.query(text, params);
