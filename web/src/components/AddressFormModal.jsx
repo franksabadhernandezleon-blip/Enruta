@@ -69,11 +69,7 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
           setCoords({ lat, lng });
           setGpsUsed(true);
 
-          const lat = position.coords.latitude;
-          const lng = position.coords.longitude;
-          setCoords({ lat, lng });
-          setGpsUsed(true);
-
+          
           // reverseGeocode invoca la API solo al presionar este botón
           const { formattedAddress } = await reverseGeocode(lat, lng);
           if (formattedAddress) {
