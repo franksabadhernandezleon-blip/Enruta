@@ -4,7 +4,6 @@ import { MapContainer, TileLayer, Marker, Polyline, Popup, useMapEvents } from '
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Bike, Car, LocateFixed, Route, AlertTriangle } from 'lucide-react';
-import { Bike, Car, LocateFixed, Route } from 'lucide-react';
 import ClientHeader from '../components/ClientHeader.jsx';
 import { Alert, Spinner } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
@@ -12,7 +11,7 @@ import { useConfig } from '../lib/config.jsx';
 import { formatBs, formatUsd } from '../lib/format.js';
 import { CARIPITO, getRoute, reverseGeocode } from '../lib/geo.js';
 
-// Corregir icono por defecto de Leaflet en React
+// Configuración de iconos por defecto para Leaflet
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
@@ -20,7 +19,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-// Componente para capturar toques en el mapa de Leaflet
 function MapClickHandler({ onMapClick }) {
   useMapEvents({
     click(e) {
@@ -34,6 +32,7 @@ export default function MototaxiPage() {
   const { settings } = useConfig();
   const navigate = useNavigate();
 
+  // Estados principales de la vista
   const [vehicleType, setVehicleType] = useState('moto'); // 'moto' | 'carro'
   const [originCoords, setOriginCoords] = useState(CARIPITO);
   const [destCoords, setDestCoords] = useState({ lat: 10.1485, lng: -63.1062 });
@@ -48,17 +47,10 @@ export default function MototaxiPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
+  // Tasa de cambio BCV
   const bcvRate = Number(settings.bcvRate || 36.5);
 
-  // Cada vez que cambia el origen o el destino, se consulta OSRM de manera obligatoria.
-  const [loadingRoute, setLoadingRoute] = useState(false);
-  const [loadingGps, setLoadingGps] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
-  const bcvRate = Number(settings.bcvRate || 36.5);
-
-  // Cada vez que cambia el origen o el destino, calcula la ruta con OSRM
+  // Consulta obligatoria a la API OSRM cada vez que cambia el origen o destino
   useEffect(() => {
     if (!originCoords || !destCoords) return;
 
@@ -74,20 +66,14 @@ export default function MototaxiPage() {
         setRouteData(data);
       })
       .catch((err) => {
-        setRouteError(err.message || 'Error al calcular la ruta OSRM. Verifica tu conexión a internet.');
-    getRoute(originCoords, destCoords)
-      .then((data) => {
-        setRouteData(data);
-      })
-      .catch(() => {
-        setRouteData(null);
+        setRouteError(err.message || 'Error al calcular la ruta OSRM. Revisa tu conexión a internet.');
       })
       .finally(() => {
         setLoadingRoute(false);
       });
   }, [originCoords.lat, originCoords.lng, destCoords.lat, destCoords.lng]);
 
-  // Reverse geocoding del destino cuando cambia
+  // Obtener nombre de la dirección del destino mediante reverse geocoding
   useEffect(() => {
     let active = true;
     reverseGeocode(destCoords.lat, destCoords.lng)
@@ -104,7 +90,7 @@ export default function MototaxiPage() {
     };
   }, [destCoords.lat, destCoords.lng]);
 
-  // Tarifas dinámicas desde configuración o valores por defecto
+  // Tarifas dinámicas basadas en settings o valores por defecto
   const isCarro = vehicleType === 'carro';
 
   const motoBase = Number(settings.moto_base_fee_cents ?? settings.motoBaseFeeCents ?? 150) / 100;
@@ -118,20 +104,11 @@ export default function MototaxiPage() {
   const distanceKm = routeData ? routeData.distanceKm : 0;
   const durationText = routeData?.durationText || '';
 
-  // Cálculo estricto OSRM: Tarifa Base + (Costo por KM * Distancia OSRM)
+  // Cobro dinámico estricto OSRM: Tarifa Base + (Costo por KM * Distancia OSRM)
   const calculatedTotalUsd = routeData
     ? Math.max(basePrice, Math.round((basePrice + distanceKm * perKmPrice) * 100) / 100)
     : 0;
 
-  const distanceKm = routeData?.distanceKm || 1.2;
-  const durationText = routeData?.durationText || '5 min';
-
-  // Tarifa dinámica en tiempo real
-  const isCarro = vehicleType === 'carro';
-  const basePrice = isCarro ? 2.5 : 1.5;
-  const perKmPrice = isCarro ? 1.0 : 0.6;
-
-  const calculatedTotalUsd = Math.max(basePrice, Math.round((basePrice + distanceKm * perKmPrice) * 100) / 100);
   const calculatedTotalBs = Math.round(calculatedTotalUsd * bcvRate * 100) / 100;
 
   const handleMapClick = (coords) => {
@@ -145,9 +122,6 @@ export default function MototaxiPage() {
     setSubmitError('');
     if (!navigator.geolocation) {
       setSubmitError('Geolocalización no soportada en este navegador.');
-    setError('');
-    if (!navigator.geolocation) {
-      setError('Geolocalización no soportada en este navegador.');
       return;
     }
     setLoadingGps(true);
@@ -160,7 +134,6 @@ export default function MototaxiPage() {
       },
       () => {
         setSubmitError('No pudimos obtener tu ubicación actual.');
-        setError('No pudimos obtener tu ubicación actual.');
         setLoadingGps(false);
       },
       { enableHighAccuracy: true, timeout: 10000 },
@@ -176,7 +149,6 @@ export default function MototaxiPage() {
       return;
     }
 
-    setError('');
     setSubmitting(true);
 
     try {
@@ -189,7 +161,6 @@ export default function MototaxiPage() {
         destination_lat: destCoords.lat,
         destination_lng: destCoords.lng,
         reference: `${destAddress || 'Destino en mapa'}${reference.trim() ? `. Ref: ${reference.trim()}` : ''}`,
-        reference: `${destAddress || 'Destino seleccionado en mapa'}${reference.trim() ? `. Ref: ${reference.trim()}` : ''}`,
         total: calculatedTotalUsd,
         paymentMethod: 'efectivo',
       };
@@ -203,10 +174,6 @@ export default function MototaxiPage() {
       }
     } catch (err) {
       setSubmitError(err.message || 'Ocurrió un error al procesar tu solicitud de transporte.');
-        setError('No pudimos crear la solicitud. Intenta de nuevo.');
-      }
-    } catch (err) {
-      setError(err.message || 'Ocurrió un error al procesar tu solicitud de transporte.');
     } finally {
       setSubmitting(false);
     }
@@ -233,12 +200,7 @@ export default function MototaxiPage() {
       <ClientHeader />
 
       <div style={{ position: 'relative', flex: 1, width: '100%' }}>
-        {/* Mapa interactivo de Leaflet */}
-        <MapContainer
-          center={[originCoords.lat, originCoords.lng]}
-          zoom={14}
-          style={{ width: '100%', height: '100%' }}
-        >
+        <MapContainer center={[originCoords.lat, originCoords.lng]} zoom={14} style={{ width: '100%', height: '100%' }}>
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -246,19 +208,13 @@ export default function MototaxiPage() {
 
           <MapClickHandler onMapClick={handleMapClick} />
 
-          {/* Marcador de Origen (GPS / Salida) */}
           <Marker position={[originCoords.lat, originCoords.lng]}>
             <Popup>
               <b>Tu Origen / Salida</b>
             </Popup>
           </Marker>
 
-          {/* Marcador de Destino (Arrastrable o tocando el mapa) */}
-          <Marker
-            position={[destCoords.lat, destCoords.lng]}
-            draggable
-            eventHandlers={destMarkerEventHandlers}
-          >
+          <Marker position={[destCoords.lat, destCoords.lng]} draggable eventHandlers={destMarkerEventHandlers}>
             <Popup>
               <b>Destino Seleccionado</b>
               <br />
@@ -266,13 +222,11 @@ export default function MototaxiPage() {
             </Popup>
           </Marker>
 
-          {/* Polyline de la ruta OSRM */}
           {routeData?.polyline && routeData.polyline.length > 0 && (
             <Polyline positions={routeData.polyline} color="#e53e3e" weight={5} opacity={0.8} />
           )}
         </MapContainer>
 
-        {/* Botón flotante de GPS */}
         <button
           type="button"
           onClick={handleUseCurrentLocation}
@@ -299,7 +253,6 @@ export default function MototaxiPage() {
           Usar mi ubicación actual
         </button>
 
-        {/* Indicador de cálculo de ruta */}
         {loadingRoute && (
           <div
             style={{
@@ -318,11 +271,10 @@ export default function MototaxiPage() {
             }}
           >
             <Spinner size={14} /> Calculando distancia OSRM por calles...
-            <Spinner size={14} /> Recalculando tarifa...
           </div>
         )}
       </div>
-     {/* Bottom Sheet deslizable / panel inferior de solicitud */}
+
       <div
         style={{
           background: '#ffffff',
@@ -357,9 +309,6 @@ export default function MototaxiPage() {
           </div>
         )}
 
-        <Alert>{error}</Alert>
-
-        {/* Selector de Vehículo: Motorizado vs Carro */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
           <button
             type="button"
@@ -408,7 +357,6 @@ export default function MototaxiPage() {
           <div>
             <label style={{ fontSize: '0.8rem', fontWeight: '600', color: '#666', display: 'block', marginBottom: '0.25rem' }}>
               📍 Toca o arrastra el pin en el mapa para establecer el destino:
-              📍 Toca el mapa para cambiar el destino:
             </label>
             <input
               type="text"
@@ -465,15 +413,6 @@ export default function MototaxiPage() {
                 {routeData ? formatUsd(Math.round(calculatedTotalUsd * 100)) : '--'}
               </strong>
               <small style={{ color: '#666' }}>{routeData ? formatBs(calculatedTotalBs) : '--'}</small>
-                <Route size={15} /> {distanceKm.toFixed(1)} km · {durationText}
-              </div>
-              <span style={{ fontSize: '0.75rem', color: '#888' }}>Tarifa dinámica en tiempo real</span>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <strong style={{ fontSize: '1.3rem', color: '#e53e3e', display: 'block' }}>
-                {formatUsd(Math.round(calculatedTotalUsd * 100))}
-              </strong>
-              <small style={{ color: '#666' }}>{formatBs(calculatedTotalBs)}</small>
             </div>
           </div>
 
@@ -483,10 +422,6 @@ export default function MototaxiPage() {
             style={{
               width: '100%',
               background: submitting || loadingRoute || routeError || !routeData ? '#a0aec0' : '#e53e3e',
-            disabled={submitting}
-            style={{
-              width: '100%',
-              background: '#e53e3e',
               color: '#ffffff',
               border: 'none',
               borderRadius: '0.75rem',
@@ -494,13 +429,11 @@ export default function MototaxiPage() {
               fontSize: '1.05rem',
               fontWeight: '700',
               cursor: submitting || loadingRoute || routeError || !routeData ? 'not-allowed' : 'pointer',
-              cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '0.5rem',
               boxShadow: routeData && !routeError ? '0 4px 12px rgba(229, 62, 62, 0.3)' : 'none',
-              boxShadow: '0 4px 12px rgba(229, 62, 62, 0.3)',
             }}
           >
             {submitting ? (
@@ -516,10 +449,6 @@ export default function MototaxiPage() {
                 {isCarro ? <Car size={20} /> : <Bike size={20} />}
                 Solicitar {isCarro ? 'Carro' : 'Motorizado'}{' '}
                 {routeData ? `(${formatUsd(Math.round(calculatedTotalUsd * 100))})` : ''}
-            ) : (
-              <>
-                {isCarro ? <Car size={20} /> : <Bike size={20} />}
-                Solicitar {isCarro ? 'Carro' : 'Motorizado'} ({formatUsd(Math.round(calculatedTotalUsd * 100))})
               </>
             )}
           </button>

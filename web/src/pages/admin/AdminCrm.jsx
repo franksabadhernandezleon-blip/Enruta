@@ -10,10 +10,6 @@ const ROLES = [
   { value: 'repartidor', label: 'Repartidor 📦' },
   { value: 'motorizado', label: 'Motorizado 🏍️' },
   { value: 'conductor', label: 'Conductor 🚗' },
-  { value: 'motorizado', label: 'Motorizado 🏍️' },
-  { value: 'conductor', label: 'Conductor 🚗' },
-  { value: 'repartidor', label: 'Repartidor 📦' },
-  { value: 'owner', label: 'Dueño Tienda' },
   { value: 'admin', label: 'Admin' },
 ];
 
@@ -164,17 +160,6 @@ export default function AdminCrm() {
                     ) : (
                       <span className="muted small">N/A</span>
                     )}
-                    <select
-                      value={user.vehicleType || 'moto'}
-                      onChange={(e) => handleUpdateUser(user.id, { vehicleType: e.target.value })}
-                      style={{ padding: '0.2rem 0.4rem', borderRadius: '0.25rem', fontSize: '0.85rem' }}
-                    >
-                      {VEHICLES.map((v) => (
-                        <option key={v.value} value={v.value}>
-                          {v.label}
-                        </option>
-                      ))}
-                    </select>
                   </td>
                   <td data-label="Pedidos / Viajes">
                     {user.ordersCount} / {user.deliveriesCount}
