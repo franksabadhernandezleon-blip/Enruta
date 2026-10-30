@@ -199,7 +199,7 @@ router.post('/orders', optionalAuth, proofUpload.single('proof'), async (req, re
       const order = await createMototaxiOrder({
         user: req.user,
         order_type: 'mototaxi',
-        store_id: body.store_id || body.storeId || null,
+        vehicle_type: body.vehicle_type || body.vehicleType || 'moto',
         origin_lat: body.origin_lat ?? body.originLat,
         origin_lng: body.origin_lng ?? body.originLng,
         destination_lat: body.destination_lat ?? body.destinationLat,

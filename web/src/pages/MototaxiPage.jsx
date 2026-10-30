@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Bike, LocateFixed, Route } from 'lucide-react';
+import { Bike, Car, LocateFixed, Route } from 'lucide-react';
 import ClientHeader from '../components/ClientHeader.jsx';
 import { Alert, Spinner } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
@@ -33,6 +33,7 @@ export default function MototaxiPage() {
   const { settings } = useConfig();
   const navigate = useNavigate();
 
+  const [vehicleType, setVehicleType] = useState('moto'); // 'moto' | 'carro'
   const [originCoords, setOriginCoords] = useState(CARIPITO);
   const [destCoords, setDestCoords] = useState({ lat: 10.1485, lng: -63.1062 });
 
@@ -84,8 +85,12 @@ export default function MototaxiPage() {
   const distanceKm = routeData?.distanceKm || 1.2;
   const durationText = routeData?.durationText || '5 min';
 
-  // Tarifa estimada: Base $1.50 + $0.60 / km (mínimo $1.50)
-  const calculatedTotalUsd = Math.max(1.5, Math.round((1.5 + distanceKm * 0.6) * 100) / 100);
+  // Tarifa dinámica en tiempo real
+  const isCarro = vehicleType === 'carro';
+  const basePrice = isCarro ? 2.5 : 1.5;
+  const perKmPrice = isCarro ? 1.0 : 0.6;
+
+  const calculatedTotalUsd = Math.max(basePrice, Math.round((basePrice + distanceKm * perKmPrice) * 100) / 100);
   const calculatedTotalBs = Math.round(calculatedTotalUsd * bcvRate * 100) / 100;
 
   const handleMapClick = (coords) => {
@@ -125,6 +130,7 @@ export default function MototaxiPage() {
     try {
       const payload = {
         order_type: 'mototaxi',
+        vehicle_type: vehicleType,
         store_id: null,
         origin_lat: originCoords.lat,
         origin_lng: originCoords.lng,
@@ -143,7 +149,7 @@ export default function MototaxiPage() {
         setError('No pudimos crear la solicitud. Intenta de nuevo.');
       }
     } catch (err) {
-      setError(err.message || 'Ocurrió un error al procesar tu solicitud de mototaxi.');
+      setError(err.message || 'Ocurrió un error al procesar tu solicitud de transporte.');
     } finally {
       setSubmitting(false);
     }
@@ -254,7 +260,7 @@ export default function MototaxiPage() {
               gap: '0.4rem',
             }}
           >
-            <Spinner size={14} /> Calculando tarifa...
+            <Spinner size={14} /> Recalculando tarifa...
           </div>
         )}
       </div>
@@ -268,11 +274,56 @@ export default function MototaxiPage() {
           boxShadow: '0 -4px 20px rgba(0,0,0,0.12)',
           padding: '1.25rem',
           zIndex: 1001,
-          maxHeight: '45vh',
+          maxHeight: '48vh',
           overflowY: 'auto',
         }}
       >
         <Alert>{error}</Alert>
+
+        {/* Selector de Vehículo: Motorizado vs Carro */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+          <button
+            type="button"
+            onClick={() => setVehicleType('moto')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.5rem',
+              padding: '0.65rem',
+              borderRadius: '0.75rem',
+              border: vehicleType === 'moto' ? '2px solid #e53e3e' : '1px solid #ccc',
+              background: vehicleType === 'moto' ? '#fff5f5' : '#ffffff',
+              color: vehicleType === 'moto' ? '#e53e3e' : '#555',
+              fontWeight: '700',
+              cursor: 'pointer',
+            }}
+          >
+            <Bike size={18} />
+            Motorizado 🏍️
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setVehicleType('carro')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.5rem',
+              padding: '0.65rem',
+              borderRadius: '0.75rem',
+              border: vehicleType === 'carro' ? '2px solid #e53e3e' : '1px solid #ccc',
+              background: vehicleType === 'carro' ? '#fff5f5' : '#ffffff',
+              color: vehicleType === 'carro' ? '#e53e3e' : '#555',
+              fontWeight: '700',
+              cursor: 'pointer',
+            }}
+          >
+            <Car size={18} />
+            Carro 🚗
+          </button>
+        </div>
 
         <form onSubmit={handleSubmitOrder} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           <div>
@@ -327,7 +378,7 @@ export default function MototaxiPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#555' }}>
                 <Route size={15} /> {distanceKm.toFixed(1)} km · {durationText}
               </div>
-              <span style={{ fontSize: '0.75rem', color: '#888' }}>Tarifa fija en tiempo real</span>
+              <span style={{ fontSize: '0.75rem', color: '#888' }}>Tarifa dinámica en tiempo real</span>
             </div>
             <div style={{ textAlign: 'right' }}>
               <strong style={{ fontSize: '1.3rem', color: '#e53e3e', display: 'block' }}>
@@ -359,12 +410,12 @@ export default function MototaxiPage() {
           >
             {submitting ? (
               <>
-                <Spinner /> Solicitando mototaxi...
+                <Spinner /> Solicitando transporte...
               </>
             ) : (
               <>
-                <Bike size={20} />
-                Solicitar Mototaxi ({formatUsd(Math.round(calculatedTotalUsd * 100))})
+                {isCarro ? <Car size={20} /> : <Bike size={20} />}
+                Solicitar {isCarro ? 'Carro' : 'Motorizado'} ({formatUsd(Math.round(calculatedTotalUsd * 100))})
               </>
             )}
           </button>
