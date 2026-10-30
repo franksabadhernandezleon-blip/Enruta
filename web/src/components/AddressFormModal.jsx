@@ -132,8 +132,8 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
         reference: reference.trim(),
         lat: finalLat,
         lng: finalLng,
-      };
-
+      }
+        try {
       let savedAddress;
       if (addressToEdit?.id) {
         const response = await api.addresses.update(addressToEdit.id, payload);
@@ -145,9 +145,10 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
 
       if (onSaved) onSaved(savedAddress);
       onClose();
-    } catch (err) {
+        } 
+     catch (err) {
       setError(err.message || 'Ocurrió un error al guardar la dirección.');
-    } finally {
+                                                    } finally {
       setLoading(false);
     }
   };
