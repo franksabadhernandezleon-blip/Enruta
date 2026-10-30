@@ -11,6 +11,7 @@ import CheckoutPage from './pages/CheckoutPage.jsx';
 import CourierPage from './pages/CourierPage.jsx';
 import FavoritesPage from './pages/FavoritesPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
+import MototaxiPage from './pages/MototaxiPage.jsx';
 import OrderPage from './pages/OrderPage.jsx';
 import SearchPage from './pages/SearchPage.jsx';
 import StoreAdminPage from './pages/StoreAdminPage.jsx';
@@ -45,6 +46,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/" element={<CatalogPage />} />
+        <Route path="/mototaxi" element={<MototaxiPage />} />
         <Route path="/tienda/:slug" element={<StorePage />} />
         <Route path="/carrito" element={<CartPage />} />
         <Route

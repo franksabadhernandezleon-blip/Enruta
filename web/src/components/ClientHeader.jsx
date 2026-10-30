@@ -28,6 +28,10 @@ export default function ClientHeader({ onOpenAddress }) {
         </Link>
 
         <div className="client-header-actions">
+          <Link to="/mototaxi" className="btn btn-ghost btn-sm" title="Solicitar servicio de Mototaxi">
+            Mototaxis 🏍️
+          </Link>
+
           <span className="greeting">
             <UserRound size={15} aria-hidden="true" />
             {user ? `Hola, ${String(user.name || user.email).split(' ')[0]}` : 'Hola, invitado'}
