@@ -254,11 +254,10 @@ export const createOrder = async ({ cart, destination, customer, paymentMethod, 
   return loadOrder({ id: order.id });
 };
 
-/** Crea una solicitud de carrera en Mototaxi (sin tiendas). */
+/** Crea una solicitud de carrera en Mototaxi (sin tiendas ni columna store_id). */
 export const createMototaxiOrder = async ({
   user,
   order_type = 'mototaxi',
-  store_id = null,
   origin_lat,
   origin_lng,
   destination_lat,
@@ -293,17 +292,16 @@ export const createMototaxiOrder = async ({
 
   const { rows } = await query(
     `INSERT INTO orders (
-      code, order_type, store_id, origin_lat, origin_lng, destination_lat, destination_lng,
+      code, order_type, origin_lat, origin_lng, destination_lat, destination_lng,
       customer_id, customer_name, customer_phone, address, lat, lng, pickup_pin, delivery_code,
       subtotal_cents, delivery_cents, total_cents, bcv_rate, total_bs, distance_km, extra_stops,
       payment_method, notes, courier_commission_cents, platform_commission_cents, reference, status
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, 'ready'
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 'ready'
     ) RETURNING *`,
     [
       code,
       'mototaxi',
-      store_id || null,
       origLat,
       origLng,
       destLat,
@@ -368,7 +366,6 @@ export const serializeOrder = (order, { view = 'customer' } = {}) => {
     id: order.id,
     code: order.code,
     orderType: order.order_type || 'delivery',
-    storeId: order.store_id || null,
     originLat: order.origin_lat ? Number(order.origin_lat) : undefined,
     originLng: order.origin_lng ? Number(order.origin_lng) : undefined,
     destinationLat: order.destination_lat ? Number(order.destination_lat) : undefined,
