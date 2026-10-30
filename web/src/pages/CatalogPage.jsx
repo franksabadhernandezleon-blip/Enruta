@@ -44,14 +44,19 @@ export default function CatalogPage() {
       <main className="page">
         <section className="hero">
           <div className="hero-copy">
-            <p className="eyebrow">Centro comercial</p>
+            <p className="eyebrow">Centro comercial & Transporte</p>
             <h1>
               {user?.name ? `¿Qué te provoca hoy, ${String(user.name).split(' ')[0]}?` : 'Pide a varias tiendas en una sola ruta'}
             </h1>
             <p className="lede">
-              Arma tu pedido entre varias tiendas de Caripito y nosotros calculamos la ruta con las paradas
-              extra incluidas. La tasa BCV queda congelada en tu recibo.
+              Arma tu pedido entre varias tiendas de Caripito o solicita un servicio de transporte exprés.
+              Nosotros calculamos la ruta con las paradas extra incluidas.
             </p>
+            <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <Link to="/mototaxi" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+                Mototaxis 🏍️
+              </Link>
+            </div>
           </div>
           <div className="hero-badges">
             <span className="badge">{openStores.length} tiendas abiertas</span>

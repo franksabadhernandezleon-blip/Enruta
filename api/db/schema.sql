@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS settings (
   payment                  jsonb NOT NULL DEFAULT '{}'::jsonb,
   admin_emails             jsonb NOT NULL DEFAULT '["franksabadhernandezleon@gmail.com"]'::jsonb,
   max_negative_balance     numeric(14,2) NOT NULL DEFAULT -10.00,
+  max_debt_usd             numeric(14,2) NOT NULL DEFAULT 10.00,
   updated_at               timestamptz NOT NULL DEFAULT now()
 );
 
@@ -37,6 +38,11 @@ CREATE TABLE IF NOT EXISTS users (
   role              text NOT NULL DEFAULT 'customer',
   banned_until      timestamptz,
   banned_permanent  boolean NOT NULL DEFAULT false,
+  wallet_balance    numeric(14,2) NOT NULL DEFAULT 0.00,
+  vehicle_type      text DEFAULT 'moto',
+  vehicle_plate     text,
+  vehicle_model     text,
+  is_available      boolean DEFAULT true,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 
@@ -61,9 +67,18 @@ CREATE TABLE IF NOT EXISTS stores (
   created_at     timestamptz NOT NULL DEFAULT now()
 );
 
+-- Migraciones idempotentes (por si las tablas ya existían antes de añadir estas columnas):
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS wallet_balance numeric(14,2) NOT NULL DEFAULT 0.00;
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+
 ALTER TABLE settings ADD COLUMN IF NOT EXISTS max_negative_balance numeric(14,2) NOT NULL DEFAULT -10.00;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS max_debt_usd numeric(14,2) NOT NULL DEFAULT 10.00;
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_balance numeric(14,2) NOT NULL DEFAULT 0.00;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_type text DEFAULT 'moto';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_plate text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_model text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_available boolean DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS products (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
