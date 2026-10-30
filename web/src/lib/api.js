@@ -178,6 +178,7 @@ export const api = {
     createStore: (payload) => request('/admin/stores', { method: 'POST', body: payload }),
     updateStore: (id, payload) => request(`/admin/stores/${id}`, { method: 'PATCH', body: payload }),
     deleteStore: (id) => request(`/admin/stores/${id}`, { method: 'DELETE' }),
+    payoutStore: (id, amount) => request(`/admin/stores/${id}/payout`, { method: 'POST', body: { amount } }),
     products: (storeId) => request(`/admin/products${storeId ? `?storeId=${storeId}` : ''}`),
     createProduct: (payload) => request('/admin/products', { method: 'POST', body: payload }),
     updateProduct: (id, payload) => request(`/admin/products/${id}`, { method: 'PATCH', body: payload }),

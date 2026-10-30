@@ -274,6 +274,12 @@ export default function StoreAdminPage() {
         <Alert>{error}</Alert>
         <Alert tone="ok">{message}</Alert>
 
+        {store && (store.walletBalance <= (store.maxNegativeBalance ?? -10) || !store.isActive) && (
+          <Alert tone="error">
+            Tu tienda ha sido pausada. Tienes un saldo pendiente de ${Math.abs(store.walletBalance || 0).toFixed(2)}. Regulariza tu pago para volver a recibir pedidos.
+          </Alert>
+        )}
+
         {stats && (
           <section className="stat-grid">
             <div className="stat">
@@ -289,8 +295,8 @@ export default function StoreAdminPage() {
               <span className="stat-label">vendido hoy</span>
             </div>
             <div className="stat">
-              <span className="stat-value">{products.length}</span>
-              <span className="stat-label">productos</span>
+              <span className="stat-value">${Number(store?.walletBalance || 0).toFixed(2)}</span>
+              <span className="stat-label">saldo billetera</span>
             </div>
           </section>
         )}
