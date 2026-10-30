@@ -52,7 +52,7 @@ export default function App() {
         <Route
           path="/checkout"
           element={
-            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier', 'motorizado', 'conductor', 'repartidor'].includes(user.role)}>
               <CheckoutPage />
             </Guard>
           }
@@ -60,7 +60,7 @@ export default function App() {
         <Route
           path="/cuenta/direcciones"
           element={
-            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier', 'motorizado', 'conductor', 'repartidor'].includes(user.role)}>
               <AddressesPage />
             </Guard>
           }
@@ -68,7 +68,7 @@ export default function App() {
         <Route
           path="/pedido/:code"
           element={
-            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier', 'motorizado', 'conductor', 'repartidor'].includes(user.role)}>
               <OrderPage />
             </Guard>
           }
@@ -86,7 +86,7 @@ export default function App() {
         <Route
           path="/cuenta"
           element={
-            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier', 'motorizado', 'conductor', 'repartidor'].includes(user.role)}>
               <AccountPage />
             </Guard>
           }
@@ -112,7 +112,7 @@ export default function App() {
         <Route
           path="/repartidor"
           element={
-            <Guard allow={(user) => ['courier', 'admin'].includes(user.role)}>
+            <Guard allow={(user) => ['courier', 'admin', 'motorizado', 'conductor', 'repartidor'].includes(user.role)}>
               <CourierPage />
             </Guard>
           }

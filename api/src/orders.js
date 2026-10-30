@@ -254,10 +254,11 @@ export const createOrder = async ({ cart, destination, customer, paymentMethod, 
   return loadOrder({ id: order.id });
 };
 
-/** Crea una solicitud de carrera en Mototaxi (sin tiendas ni columna store_id). */
+/** Crea una solicitud de carrera en Mototaxi/Movilidad (sin tiendas ni columna store_id). */
 export const createMototaxiOrder = async ({
   user,
   order_type = 'mototaxi',
+  vehicle_type = 'moto',
   origin_lat,
   origin_lng,
   destination_lat,
@@ -279,11 +280,24 @@ export const createMototaxiOrder = async ({
 
   const settings = await getSettings();
   const rate = Number(settings.bcv_rate || 36.5);
-  const totalVal = Math.max(0.50, Number(total) || 1.50);
-  const totalCents = Math.round(totalVal * 100);
-  const totalBs = Math.round((totalCents / 100) * rate * 100) / 100;
+  const cleanVehicle = String(vehicle_type).toLowerCase() === 'carro' ? 'carro' : 'moto';
 
   const distanceKm = haversineKm({ lat: origLat, lng: origLng }, { lat: destLat, lng: destLng });
+
+  let calculatedCents = 150;
+  if (cleanVehicle === 'carro') {
+    const baseCents = Number(settings.taxi_base_fee_cents || 250);
+    const perKmCents = Number(settings.taxi_per_km_cents || 100);
+    calculatedCents = Math.max(baseCents, Math.round(baseCents + distanceKm * perKmCents));
+  } else {
+    const baseCents = Number(settings.moto_base_fee_cents || 150);
+    const perKmCents = Number(settings.moto_per_km_cents || 60);
+    calculatedCents = Math.max(baseCents, Math.round(baseCents + distanceKm * perKmCents));
+  }
+
+  const totalVal = total !== undefined ? Math.max(0.50, Number(total)) : calculatedCents / 100;
+  const totalCents = Math.round(totalVal * 100);
+  const totalBs = Math.round((totalCents / 100) * rate * 100) / 100;
 
   const courierCommissionCents = Math.round(totalCents * 0.90);
   const platformCommissionCents = Math.round(totalCents * 0.10);
@@ -292,24 +306,25 @@ export const createMototaxiOrder = async ({
 
   const { rows } = await query(
     `INSERT INTO orders (
-      code, order_type, origin_lat, origin_lng, destination_lat, destination_lng,
+      code, order_type, vehicle_type, origin_lat, origin_lng, destination_lat, destination_lng,
       customer_id, customer_name, customer_phone, address, lat, lng, pickup_pin, delivery_code,
       subtotal_cents, delivery_cents, total_cents, bcv_rate, total_bs, distance_km, extra_stops,
       payment_method, notes, courier_commission_cents, platform_commission_cents, reference, status
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 'ready'
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, 'ready'
     ) RETURNING *`,
     [
       code,
       'mototaxi',
+      cleanVehicle,
       origLat,
       origLng,
       destLat,
       destLng,
       user?.id || null,
-      String(customer_name || user?.name || 'Cliente Mototaxi').slice(0, 120),
+      String(customer_name || user?.name || 'Cliente').slice(0, 120),
       String(customer_phone || user?.phone || '').slice(0, 40),
-      String(reference || 'Viaje en Mototaxi').slice(0, 240),
+      String(reference || `Viaje en ${cleanVehicle === 'carro' ? 'Carro' : 'Moto'}`).slice(0, 240),
       destLat,
       destLng,
       pin4(),
@@ -331,14 +346,14 @@ export const createMototaxiOrder = async ({
 
   const order = rows[0];
 
-  await crm('order', `Solicitud Mototaxi ${code} por ${totalVal.toFixed(2)} USD`, {
+  await crm('order', `Solicitud Viaje ${code} (${cleanVehicle}) por ${totalVal.toFixed(2)} USD`, {
     email: user?.email || null,
     orderCode: code,
   });
 
   await notifyCouriers({
-    title: `🏍️ Solicitud de Mototaxi ${code}`,
-    body: `Distancia ${distanceKm.toFixed(1)} km · Carrera ${totalVal.toFixed(2)} USD`,
+    title: `🚗/🏍️ Solicitud de Viaje ${code}`,
+    body: `Vehículo: ${cleanVehicle.toUpperCase()} · Distancia ${distanceKm.toFixed(1)} km · Carrera ${totalVal.toFixed(2)} USD`,
     url: '/repartidor',
     tag: `radar-${order.id}`,
   }).catch(() => 0);
@@ -366,6 +381,7 @@ export const serializeOrder = (order, { view = 'customer' } = {}) => {
     id: order.id,
     code: order.code,
     orderType: order.order_type || 'delivery',
+    vehicleType: order.vehicle_type || 'moto',
     originLat: order.origin_lat ? Number(order.origin_lat) : undefined,
     originLng: order.origin_lng ? Number(order.origin_lng) : undefined,
     destinationLat: order.destination_lat ? Number(order.destination_lat) : undefined,
@@ -647,7 +663,7 @@ export const deliverOrder = async ({ orderId, code, courier }) => {
       await query(
         `INSERT INTO wallet_entries (courier_id, order_code, amount_cents, kind, note)
          VALUES ($1, $2, $3, 'commission', $4)`,
-        [courierId, order.code, -(order.platform_commission_cents || 0), `Comisión Mototaxi ${order.code}`],
+        [courierId, order.code, -(order.platform_commission_cents || 0), `Comisión Viaje ${order.code}`],
       );
     }
   } else {

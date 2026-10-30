@@ -231,7 +231,7 @@ export default function CourierPage() {
             <Bike size={20} aria-hidden="true" />
           </span>
           <span className="brand-text">
-            <strong>{user?.name || 'Motorizado'}</strong>
+            <strong>{user?.name || 'Conductor / Motorizado'}</strong>
             <small>/repartidor</small>
           </span>
         </div>
@@ -293,15 +293,15 @@ export default function CourierPage() {
         <Alert tone="ok">{message}</Alert>
         {loading && (
           <p className="muted">
-            <Spinner /> Cargando pedidos…
+            <Spinner /> Cargando viajes y pedidos…
           </p>
         )}
 
         {tab === 'radar' && (
           <div className="admin-grid">
             <Section
-              title="Radar de pedidos"
-              subtitle="Los viajes y pedidos aparecen en tiempo real. Al aceptar uno, lo tomas en exclusiva."
+              title="Radar de viajes y pedidos"
+              subtitle="Los servicios aparecen en tiempo real según tu rol. Al aceptar uno, lo tomas en exclusiva."
             >
               <ul className="admin-list">
                 {ready.map((order) => {
@@ -323,7 +323,7 @@ export default function CourierPage() {
                                   borderRadius: '1rem',
                                 }}
                               >
-                                MOTOTAXI 🏍️
+                                {order.vehicleType === 'carro' ? 'CARRO 🚗' : 'MOTO 🏍️'}
                               </span>
                             )}
                           </div>
@@ -428,7 +428,7 @@ export default function CourierPage() {
 
         {tab === 'ruta' && (
           <div className="admin-grid">
-            {!active && <p className="muted">No tienes una ruta activa. Acepta un pedido del radar.</p>}
+            {!active && <p className="muted">No tienes una ruta activa. Acepta un viaje o pedido del radar.</p>}
 
             {active && (
               <>

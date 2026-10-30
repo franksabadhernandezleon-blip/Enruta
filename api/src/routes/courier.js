@@ -14,7 +14,7 @@ import {
 
 const router = Router();
 
-router.use(requireAuth, requireRole('courier', 'admin'));
+router.use(requireAuth, requireRole('courier', 'admin', 'motorizado', 'conductor', 'repartidor'));
 
 const loadFull = async (id) => {
   const order = await loadOrder({ id });
@@ -28,14 +28,23 @@ const courierView = (order) => ({
   mine: order.courier_id,
 });
 
-// Radar: el pedido aparece apenas la tienda lo recibe (sin PIN ni liberación previa),
-// con el itinerario completo antes de aceptar.
+// Radar: los viajes y entregas aparecen filtrados por el rol de transporte del usuario.
 router.get('/orders/ready', async (req, res, next) => {
   try {
+    const role = String(req.user.role || '').toLowerCase();
+
+    let whereClause = "WHERE courier_id IS NULL AND status IN ('pending','picking','ready')";
+
+    if (role === 'motorizado') {
+      whereClause += " AND (order_type = 'mototaxi' AND (vehicle_type = 'moto' OR vehicle_type IS NULL))";
+    } else if (role === 'conductor') {
+      whereClause += " AND (order_type = 'mototaxi' AND vehicle_type = 'carro')";
+    } else if (role === 'repartidor') {
+      whereClause += " AND (order_type = 'delivery' OR order_type IS NULL)";
+    }
+
     const { rows } = await query(
-      `SELECT id FROM orders
-        WHERE courier_id IS NULL AND status IN ('pending','picking','ready')
-        ORDER BY created_at ASC LIMIT 30`,
+      `SELECT id FROM orders ${whereClause} ORDER BY created_at ASC LIMIT 30`,
     );
     const orders = [];
     for (const row of rows) {
