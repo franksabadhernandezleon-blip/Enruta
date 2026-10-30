@@ -78,7 +78,7 @@ export default function CourierPage() {
 
   useEffect(() => {
     load();
-    const timer = setInterval(load, 20000);
+    const timer = setInterval(load, 10000);
     return () => clearInterval(timer);
   }, [load]);
 
@@ -301,61 +301,126 @@ export default function CourierPage() {
           <div className="admin-grid">
             <Section
               title="Radar de pedidos"
-              subtitle="Aparecen apenas la tienda recibe el pedido, sin PIN previo. Revisa el itinerario completo antes de aceptar."
+              subtitle="Los viajes y pedidos aparecen en tiempo real. Al aceptar uno, lo tomas en exclusiva."
             >
               <ul className="admin-list">
-                {ready.map((order) => (
-                  <li key={order.id} className="is-stacked">
-                    <div className="admin-row-main">
-                      <div>
-                        <strong>{order.code}</strong>
-                        <span className="muted">
-                          {order.stops.length} parada(s) · {formatKm(order.distanceKm)} · ganancia{' '}
-                          {formatUsd(order.earningsCents)}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={() => accept(order)}
-                        disabled={busyOrder === order.id}
-                      >
-                        {busyOrder === order.id ? <Spinner /> : <Check size={14} aria-hidden="true" />}
-                        Aceptar Pedido
-                      </button>
-                    </div>
-                    <ol className="route-steps">
-                      {order.stops.map((stop, index) => (
-                        <li key={stop.id}>
-                          <span className="route-index">{stop.seq}</span>
-                          <div>
-                            <strong>
-                              {index === 0 ? 'Retiro en ' : 'Parada extra en '}
-                              {stop.storeName}
-                            </strong>
-                            <span className="muted">{stop.storeAddress || 'Dirección por confirmar'}</span>
-                            {stop.storePhone && <span className="muted small">Local: {stop.storePhone}</span>}
-                          </div>
-                        </li>
-                      ))}
-                      <li>
-                        <span className="route-index is-client">
-                          <Navigation size={13} aria-hidden="true" />
-                        </span>
+                {ready.map((order) => {
+                  const isMototaxi = order.orderType === 'mototaxi';
+                  return (
+                    <li key={order.id} className="is-stacked">
+                      <div className="admin-row-main">
                         <div>
-                          <strong>Destino: {order.customerName || 'cliente'}</strong>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+                            <strong>{order.code}</strong>
+                            {isMototaxi && (
+                              <span
+                                style={{
+                                  background: '#e53e3e',
+                                  color: '#ffffff',
+                                  fontSize: '0.75rem',
+                                  fontWeight: '700',
+                                  padding: '0.15rem 0.5rem',
+                                  borderRadius: '1rem',
+                                }}
+                              >
+                                MOTOTAXI 🏍️
+                              </span>
+                            )}
+                          </div>
                           <span className="muted">
-                            {order.address || 'Dirección por confirmar'} ·{' '}
-                            <a href={mapsLink({ lat: order.lat, lng: order.lng })} target="_blank" rel="noreferrer">
-                              navegar
-                            </a>
+                            {isMototaxi
+                              ? `Carrera Exprés · ${formatKm(order.distanceKm)} · pago ${formatUsd(order.deliveryCents || order.totalCents)}`
+                              : `${order.stops.length} parada(s) · ${formatKm(order.distanceKm)} · ganancia ${formatUsd(
+                                  order.earningsCents || order.deliveryCents,
+                                )}`}
                           </span>
                         </div>
-                      </li>
-                    </ol>
-                  </li>
-                ))}
-                {!ready.length && <li className="muted">El radar está vacío: aquí aparece el pedido apenas la tienda lo recibe.</li>}
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={() => accept(order)}
+                          disabled={busyOrder === order.id}
+                        >
+                          {busyOrder === order.id ? <Spinner /> : <Check size={14} aria-hidden="true" />}
+                          Aceptar {isMototaxi ? 'Viaje' : 'Pedido'}
+                        </button>
+                      </div>
+
+                      {isMototaxi ? (
+                        <div
+                          style={{
+                            marginTop: '0.75rem',
+                            padding: '0.75rem',
+                            background: '#f8f9fa',
+                            borderRadius: '0.5rem',
+                            fontSize: '0.9rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.3rem',
+                          }}
+                        >
+                          <div>
+                            <strong>📍 Pasajero / Origen:</strong> {order.customerName || 'Cliente'}
+                            {order.customerPhone && (
+                              <span className="muted small" style={{ marginLeft: '0.5rem' }}>
+                                ({order.customerPhone})
+                              </span>
+                            )}
+                          </div>
+                          <div>
+                            <strong>🎯 Destino & Notas:</strong> {order.reference || order.notes || order.address || 'Ver mapa'}
+                          </div>
+                          {order.originLat && order.destinationLat && (
+                            <div style={{ marginTop: '0.2rem' }}>
+                              <a
+                                href={mapsLink({ lat: order.destinationLat, lng: order.destinationLng })}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="muted small"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                              >
+                                <Navigation size={12} /> Ver destino en mapa
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <ol className="route-steps">
+                          {order.stops.map((stop, index) => (
+                            <li key={stop.id}>
+                              <span className="route-index">{stop.seq}</span>
+                              <div>
+                                <strong>
+                                  {index === 0 ? 'Retiro en ' : 'Parada extra en '}
+                                  {stop.storeName}
+                                </strong>
+                                <span className="muted">{stop.storeAddress || 'Dirección por confirmar'}</span>
+                                {stop.storePhone && <span className="muted small">Local: {stop.storePhone}</span>}
+                              </div>
+                            </li>
+                          ))}
+                          <li>
+                            <span className="route-index is-client">
+                              <Navigation size={13} aria-hidden="true" />
+                            </span>
+                            <div>
+                              <strong>Destino: {order.customerName || 'cliente'}</strong>
+                              <span className="muted">
+                                {order.address || 'Dirección por confirmar'} ·{' '}
+                                <a href={mapsLink({ lat: order.lat, lng: order.lng })} target="_blank" rel="noreferrer">
+                                  navegar
+                                </a>
+                              </span>
+                            </div>
+                          </li>
+                        </ol>
+                      )}
+                    </li>
+                  );
+                })}
+                {!ready.length && (
+                  <li className="muted">El radar está vacío: los nuevos pedidos y carreras aparecen aquí en tiempo real.</li>
+                )}
               </ul>
             </Section>
           </div>
@@ -369,10 +434,10 @@ export default function CourierPage() {
               <>
                 <Section
                   title={`Ruta ${active.code}`}
-                  subtitle={`PIN de retiro ${active.pickupPin} · ${formatKm(active.distanceKm)} · ganancia ${formatUsd(active.earningsCents)}`}
+                  subtitle={`PIN de retiro ${active.pickupPin} · ${formatKm(active.distanceKm)} · ganancia ${formatUsd(active.earningsCents || active.deliveryCents)}`}
                 >
                   <ol className="route-steps">
-                    {active.stops.map((stop) => (
+                    {(active.stops || []).map((stop) => (
                       <li key={stop.id} className={stop.released ? 'is-released' : ''}>
                         <span className={`route-index${stop.released ? ' is-client' : ''}`}>{stop.seq}</span>
                         <div>
@@ -403,7 +468,7 @@ export default function CourierPage() {
                       </span>
                       <div>
                         <strong>Entrega a {active.customerName || 'cliente'}</strong>
-                        <span className="muted">{active.address}</span>
+                        <span className="muted">{active.address || active.reference}</span>
                         <div className="inline-actions">
                           {active.customerPhone && (
                             <>
@@ -413,7 +478,7 @@ export default function CourierPage() {
                               </a>
                               <a
                                 className="btn btn-ghost btn-sm"
-                                href={whatsappLink(active.customerPhone, `Hola, soy tu motorizado de ENRUTA para el pedido ${active.code}.`)}
+                                href={whatsappLink(active.customerPhone, `Hola, soy tu motorizado de ENRUTA para el viaje/pedido ${active.code}.`)}
                                 target="_blank"
                                 rel="noreferrer"
                               >
@@ -467,11 +532,11 @@ export default function CourierPage() {
 
                 <Section
                   title="Mi ubicación en ruta"
-                  subtitle="Con ruta activa compartes tu posición con la tienda cada 20 s; también sirve para la entrega final"
+                  subtitle="Con ruta activa compartes tu posición en vivo"
                 >
                   <MapPicker
                     point={{ lat: Number(active.lat), lng: Number(active.lng) }}
-                    markers={active.stops.map((stop) => ({ id: stop.id, name: stop.storeName, lat: stop.lat, lng: stop.lng }))}
+                    markers={(active.stops || []).map((stop) => ({ id: stop.id, name: stop.storeName, lat: stop.lat, lng: stop.lng }))}
                     label="Entrega"
                     readOnly
                   />
@@ -483,7 +548,7 @@ export default function CourierPage() {
 
         {tab === 'billetera' && wallet && (
           <div className="admin-grid">
-            <Section title="Billetera virtual" subtitle="Comisiones acumuladas por entregas cerradas">
+            <Section title="Billetera virtual" subtitle="Comisiones acumuladas por entregas y carreras cerradas">
               <div className="summary-row is-total">
                 <span>Saldo disponible</span>
                 <b>{formatUsd(wallet.balanceCents)}</b>
@@ -510,7 +575,7 @@ export default function CourierPage() {
               </button>
             </Section>
 
-            <Section title="Movimientos" subtitle="Entregas y pagos">
+            <Section title="Movimientos" subtitle="Entregas, comisiones y pagos">
               <ul className="admin-list is-feed">
                 {wallet.entries.map((entry) => (
                   <li key={entry.id}>
