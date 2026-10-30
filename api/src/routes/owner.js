@@ -9,6 +9,7 @@ import {
   releaseStop,
 } from '../orders.js';
 import { listStoreProofs, serializeProof } from '../proofs.js';
+import { getSettings } from '../settings.js';
 
 const router = Router();
 
@@ -39,7 +40,7 @@ const serializeProduct = (product) => ({
   active: product.active,
 });
 
-const serializeStore = (store) => ({
+const serializeStore = (store, maxNegativeBalance = -10.0) => ({
   id: store.id,
   name: store.name,
   slug: store.slug,
@@ -54,6 +55,9 @@ const serializeStore = (store) => ({
   rating: Number(store.rating),
   schedule: store.schedule,
   ownerEmail: store.owner_email,
+  walletBalance: Number(store.wallet_balance || 0),
+  isActive: Boolean(store.is_active),
+  maxNegativeBalance: Number(maxNegativeBalance),
 });
 
 const parsePrice = (value) => {
@@ -82,11 +86,15 @@ const requireStore = async (req, res, next) => {
 
 router.get('/store', requireStore, async (req, res, next) => {
   try {
+    const settings = await getSettings();
     const products = await query(
       'SELECT * FROM products WHERE store_id = $1 ORDER BY position ASC, name ASC',
       [req.store.id],
     );
-    res.json({ store: serializeStore(req.store), products: products.rows.map(serializeProduct) });
+    res.json({
+      store: serializeStore(req.store, settings.max_negative_balance),
+      products: products.rows.map(serializeProduct),
+    });
   } catch (error) {
     next(error);
   }

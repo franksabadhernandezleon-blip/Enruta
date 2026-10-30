@@ -25,6 +25,7 @@ export default function AdminStores() {
   const [stores, setStores] = useState([]);
   const [draft, setDraft] = useState(EMPTY);
   const [editingId, setEditingId] = useState(null);
+  const [payoutModal, setPayoutModal] = useState({ open: false, store: null, amount: '' });
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -123,8 +124,8 @@ export default function AdminStores() {
                 <div>
                   <strong>{store.name}</strong>
                   <span className="muted">
-                    {store.ownerEmail || 'sin dueño'} · {store.open ? 'Abierta' : 'Cerrada'} ·{' '}
-                    {store.lat ? `${Number(store.lat).toFixed(4)}, ${Number(store.lng).toFixed(4)}` : 'sin pin'}
+                    {store.ownerEmail || 'sin dueño'} · Saldo: ${Number(store.walletBalance || 0).toFixed(2)} ·{' '}
+                    {store.isActive ? (store.open ? 'Abierta' : 'Cerrada') : 'Pausada (Deuda)'}
                   </span>
                 </div>
               </div>
@@ -132,6 +133,13 @@ export default function AdminStores() {
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => copyLink(store)}>
                   <Link2 size={14} aria-hidden="true" />
                   Link único
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setPayoutModal({ open: true, store, amount: '' })}
+                >
+                  Abonar Billetera
                 </button>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => startEdit(store)}>
                   Editar
@@ -211,6 +219,59 @@ export default function AdminStores() {
           </button>
         </div>
       </Section>
+
+      {payoutModal.open && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setPayoutModal({ open: false, store: null, amount: '' })}
+          style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'grid', placeItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}
+        >
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(420px, 100%)', backgroundColor: '#fff', borderRadius: '14px', padding: '20px' }}
+          >
+            <h3>Abonar a Billetera — {payoutModal.store?.name}</h3>
+            <p className="muted small" style={{ margin: '8px 0 16px' }}>
+              Saldo actual: ${Number(payoutModal.store?.walletBalance || 0).toFixed(2)}
+            </p>
+            <Field label="Monto a abonar (USD)">
+              <input
+                type="number"
+                step="0.01"
+                value={payoutModal.amount}
+                onChange={(e) => setPayoutModal((prev) => ({ ...prev, amount: e.target.value }))}
+                placeholder="Ej: 10.00"
+              />
+            </Field>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setPayoutModal({ open: false, store: null, amount: '' })}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={async () => {
+                  try {
+                    await api.admin.payoutStore(payoutModal.store.id, Number(payoutModal.amount));
+                    setPayoutModal({ open: false, store: null, amount: '' });
+                    setMessage('Abono registrado y saldo actualizado.');
+                    await load();
+                  } catch (err) {
+                    setError(err.message);
+                  }
+                }}
+              >
+                Registrar Pago
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

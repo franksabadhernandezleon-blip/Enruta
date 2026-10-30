@@ -200,6 +200,25 @@ export const createOrder = async ({ cart, destination, customer, paymentMethod, 
     );
   }
 
+  // Deducción de billetera por tienda: (total_productos * 0.07) + delivery_tienda
+  for (const stop of built.stops) {
+    const storeProductsCents = built.lines
+      .filter((line) => line.storeId === stop.storeId)
+      .reduce((sum, line) => sum + line.lineTotalCents, 0);
+
+    const storeDeliveryFeeCents = stop.extraFeeCents || 0; // O la cuota base si es la única
+    const storeDeductionCents = Math.round(storeProductsCents * 0.07) + storeDeliveryFeeCents;
+    const storeDeductionUsd = storeDeductionCents / 100;
+
+    await query(
+      `UPDATE stores
+          SET wallet_balance = wallet_balance - $2,
+              is_active = CASE WHEN (wallet_balance - $2) <= $3 THEN false ELSE is_active END
+        WHERE id = $1`,
+      [stop.storeId, storeDeductionUsd, Number(built.settings.max_negative_balance || -10.0)],
+    );
+  }
+
   await crm('order', `Pedido ${code} por ${(built.totalCents / 100).toFixed(2)} USD`, {
     email: order.customer_phone ? null : user?.email || null,
     orderCode: code,

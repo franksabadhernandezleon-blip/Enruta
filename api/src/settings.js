@@ -18,6 +18,7 @@ const NUMERIC_FIELDS = [
   'courier_commission_pct',
   'platform_commission_pct',
   'max_weight_kg',
+  'max_negative_balance',
 ];
 
 const BOOLEAN_FIELDS = [

@@ -24,6 +24,8 @@ const serializeStore = (store) => ({
   rating: Number(store.rating),
   ownerEmail: store.owner_email,
   ownerId: store.owner_id,
+  walletBalance: Number(store.wallet_balance || 0),
+  isActive: Boolean(store.is_active),
   link: `/tienda/${store.slug}`,
 });
 
@@ -114,6 +116,31 @@ router.get('/overview', async (req, res, next) => {
       })),
       isAdmin: isAdmin(req.user),
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/stores/:id/payout', async (req, res, next) => {
+  try {
+    const amount = Number(req.body?.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw httpError(400, 'Ingresa un monto de abono válido.');
+    }
+
+    const settings = await getSettings();
+    const maxNegative = Number(settings.max_negative_balance || -10.0);
+
+    const { rows } = await query(
+      `UPDATE stores
+          SET wallet_balance = wallet_balance + $2,
+              is_active = CASE WHEN (wallet_balance + $2) > $3 THEN true ELSE is_active END
+        WHERE id = $1 RETURNING *`,
+      [req.params.id, amount, maxNegative],
+    );
+
+    if (!rows[0]) throw httpError(404, 'Esa tienda no existe.');
+    res.json({ store: serializeStore(rows[0]) });
   } catch (error) {
     next(error);
   }

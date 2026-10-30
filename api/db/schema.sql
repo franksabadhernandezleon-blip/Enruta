@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS settings (
   whatsapp_message         text NOT NULL DEFAULT '¡Hola ENRUTA! Quiero hacer un pedido.',
   payment                  jsonb NOT NULL DEFAULT '{}'::jsonb,
   admin_emails             jsonb NOT NULL DEFAULT '["franksabadhernandezleon@gmail.com"]'::jsonb,
+  max_negative_balance     numeric(14,2) NOT NULL DEFAULT -10.00,
   updated_at               timestamptz NOT NULL DEFAULT now()
 );
 
@@ -40,23 +41,29 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS stores (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_id    uuid REFERENCES users(id) ON DELETE SET NULL,
-  owner_email text,
-  name        text NOT NULL,
-  slug        text NOT NULL UNIQUE,
-  description text NOT NULL DEFAULT '',
-  logo_url    text,
-  banner_url  text,
-  open        boolean NOT NULL DEFAULT true,
-  address     text NOT NULL DEFAULT '',
-  lat         double precision,
-  lng         double precision,
-  phone       text,
-  rating      numeric(2,1) NOT NULL DEFAULT 5.0,
-  schedule    jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at  timestamptz NOT NULL DEFAULT now()
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id       uuid REFERENCES users(id) ON DELETE SET NULL,
+  owner_email    text,
+  name           text NOT NULL,
+  slug           text NOT NULL UNIQUE,
+  description    text NOT NULL DEFAULT '',
+  logo_url       text,
+  banner_url     text,
+  open           boolean NOT NULL DEFAULT true,
+  address        text NOT NULL DEFAULT '',
+  lat            double precision,
+  lng            double precision,
+  phone          text,
+  rating         numeric(2,1) NOT NULL DEFAULT 5.0,
+  schedule       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  wallet_balance numeric(14,2) NOT NULL DEFAULT 0.00,
+  is_active      boolean NOT NULL DEFAULT true,
+  created_at     timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS wallet_balance numeric(14,2) NOT NULL DEFAULT 0.00;
+ALTER TABLE stores ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS max_negative_balance numeric(14,2) NOT NULL DEFAULT -10.00;
 
 CREATE TABLE IF NOT EXISTS products (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),

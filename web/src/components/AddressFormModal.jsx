@@ -33,6 +33,12 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
       setLabel(addressToEdit.label || 'Casa');
       setAddressText(addressToEdit.addressText || addressToEdit.address_text || '');
       setReference(addressToEdit.reference || '');
+      if (addressToEdit.lat !== undefined && addressToEdit.lng !== undefined) {
+        setCoords({ lat: Number(addressToEdit.lat), lng: Number(addressToEdit.lng) });
+      } else {
+        setCoords(null);
+      }
+      setGpsUsed(true);
       setCoords({ lat: addressToEdit.lat, lng: addressToEdit.lng });
       setGpsUsed(true); // Al editar con coordenadas existentes, no requiere re-geocodificar salvo que edite el texto
     } else {
@@ -58,6 +64,11 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         try {
+          const lat = Number(position.coords.latitude);
+          const lng = Number(position.coords.longitude);
+          setCoords({ lat, lng });
+          setGpsUsed(true);
+
           const lat = position.coords.latitude;
           const lng = position.coords.longitude;
           setCoords({ lat, lng });
@@ -98,6 +109,13 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
     setLoading(true);
 
     try {
+      let finalLat = coords?.lat !== undefined ? Number(coords.lat) : null;
+      let finalLng = coords?.lng !== undefined ? Number(coords.lng) : null;
+
+      if (!gpsUsed || finalLat === null || finalLng === null || !Number.isFinite(finalLat) || !Number.isFinite(finalLng)) {
+        const geocoded = await geocodeAddress(addressText);
+        finalLat = Number(geocoded.lat);
+        finalLng = Number(geocoded.lng);
       let finalLat = coords?.lat;
       let finalLng = coords?.lng;
 
@@ -139,6 +157,45 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
   };
 
   return (
+    <div
+      className="modal-backdrop"
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 60,
+        display: 'grid',
+        placeItems: 'center',
+        padding: '18px',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      }}
+    >
+      <div
+        className="modal-content"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(500px, 100%)',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          borderRadius: 'var(--radius, 14px)',
+          backgroundColor: '#ffffff',
+          boxShadow: 'var(--shadow, 0 10px 30px rgba(22, 23, 27, 0.08))',
+          padding: '20px',
+        }}
+      >
+        <div
+          className="modal-header"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '16px',
+            paddingBottom: '12px',
+            borderBottom: '1px solid var(--line, #e4e6eb)',
+          }}
+        >
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '1.1rem' }}>
+            <MapPin size={20} className="text-primary" aria-hidden="true" />
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -150,6 +207,9 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
             <X size={18} />
           </button>
         </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <Alert>{error}</Alert>
 
         <form onSubmit={handleSubmit} className="modal-body">
           <Alert>{error}</Alert>
@@ -180,12 +240,14 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
             </select>
           </Field>
 
+          <Field label="Dirección exacta">
           <Field label="Dirección exactas">
             <input
               type="text"
               value={addressText}
               onChange={(e) => {
                 setAddressText(e.target.value);
+                setGpsUsed(false);
                 setGpsUsed(false); // Al modificar el texto manualmente se requiere re-geocodificar al guardar
               }}
               placeholder="Ej: Calle 3, Sector Las Flores, Casa #45"
@@ -204,6 +266,28 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
             />
           </Field>
 
+          <button
+            type="button"
+            className="btn btn-ghost btn-block"
+            onClick={handleUseCurrentLocation}
+            disabled={loading}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '4px' }}
+          >
+            <Navigation size={16} aria-hidden="true" />
+            Usar mi ubicación actual
+          </button>
+
+          <div
+            className="modal-actions"
+            style={{
+              display: 'flex',
+              gap: '10px',
+              justifyContent: 'flex-end',
+              marginTop: '12px',
+              paddingTop: '12px',
+              borderTop: '1px solid var(--line, #e4e6eb)',
+            }}
+          >
           <div className="modal-actions" style={{ marginTop: '1.5rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
               Cancelar
