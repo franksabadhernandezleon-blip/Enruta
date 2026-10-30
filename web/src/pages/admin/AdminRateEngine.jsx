@@ -24,6 +24,7 @@ export default function AdminRateEngine({ settings, onSaved }) {
       courier_commission_pct: Number(settings.courier_commission_pct),
       platform_commission_pct: Number(settings.platform_commission_pct),
       max_weight_kg: Number(settings.max_weight_kg),
+      max_negative_balance: settings.max_negative_balance !== undefined ? Number(settings.max_negative_balance) : -10.0,
       whatsapp_number: settings.whatsapp_number,
       whatsapp_message: settings.whatsapp_message,
       charge_courier_store_leg: settings.charge_courier_store_leg,
@@ -59,6 +60,7 @@ export default function AdminRateEngine({ settings, onSaved }) {
         courier_commission_pct: Number(form.courier_commission_pct),
         platform_commission_pct: Number(form.platform_commission_pct),
         max_weight_kg: Number(form.max_weight_kg),
+        max_negative_balance: Number(form.max_negative_balance),
         whatsapp_number: form.whatsapp_number,
         whatsapp_message: form.whatsapp_message,
         charge_courier_store_leg: form.charge_courier_store_leg,
@@ -160,9 +162,14 @@ export default function AdminRateEngine({ settings, onSaved }) {
         <Field label="Mensaje base de WhatsApp">
           <textarea value={form.whatsapp_message} onChange={update('whatsapp_message')} rows={2} />
         </Field>
-        <Field label="Límite de peso por pedido (kg)">
-          <input value={form.max_weight_kg} onChange={update('max_weight_kg')} inputMode="decimal" />
-        </Field>
+        <div className="field-row">
+          <Field label="Límite de peso por pedido (kg)">
+            <input value={form.max_weight_kg} onChange={update('max_weight_kg')} inputMode="decimal" />
+          </Field>
+          <Field label="Límite de deuda billetera tienda (USD)">
+            <input value={form.max_negative_balance} onChange={update('max_negative_balance')} inputMode="decimal" />
+          </Field>
+        </div>
 
         {['pagoMovil', 'transferencia', 'binance'].map((method) => (
           <div key={method} className="payment-editor">

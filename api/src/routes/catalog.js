@@ -94,7 +94,9 @@ router.get('/stores', async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT s.*, (SELECT count(*) FROM products p WHERE p.store_id = s.id AND p.active) AS product_count
-         FROM stores s ORDER BY s.open DESC, s.rating DESC, s.name ASC`,
+         FROM stores s
+        WHERE s.is_active = true
+        ORDER BY s.open DESC, s.rating DESC, s.name ASC`,
     );
     res.json({ stores: rows.map(storeCard) });
   } catch (error) {
@@ -208,6 +210,8 @@ router.post('/orders', optionalAuth, proofUpload.single('proof'), async (req, re
       notes: body.notes,
       dynamic: Boolean(body.dynamic),
       user: req.user,
+      addressId: body.addressId || body.customer?.addressId,
+      reference: body.reference || body.customer?.reference,
     });
 
     let proofs = [];

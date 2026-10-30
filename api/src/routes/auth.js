@@ -149,9 +149,10 @@ router.post('/google', async (req, res, next) => {
 
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
-    const store = await loadOwnStore(req.user);
+    const user = isAdmin(req.user) ? req.user : await linkRoleForEmail(req.user);
+    const store = await loadOwnStore(user);
     res.json({
-      user: publicUser(req.user),
+      user: publicUser(user),
       store: publicStore(store),
       pushEnabled: pushReady,
     });

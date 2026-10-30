@@ -113,7 +113,7 @@ export const quoteCart = async ({ cart = [], destination, dynamic = false }) => 
   };
 };
 
-export const createOrder = async ({ cart, destination, customer, paymentMethod, paymentRef, notes, dynamic, user }) => {
+export const createOrder = async ({ cart, destination, customer, paymentMethod, paymentRef, notes, dynamic, user, addressId, reference }) => {
   const built = await quoteCart({ cart, destination, dynamic });
 
   if (built.overWeight) {
@@ -133,8 +133,9 @@ export const createOrder = async ({ cart, destination, customer, paymentMethod, 
     `INSERT INTO orders (code, customer_id, customer_name, customer_phone, address, lat, lng,
                          pickup_pin, delivery_code, subtotal_cents, delivery_cents, total_cents,
                          bcv_rate, total_bs, distance_km, extra_stops, dynamic_fee_applied, max_weight_kg,
-                         payment_method, payment_ref, notes, courier_commission_cents, platform_commission_cents)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+                         payment_method, payment_ref, notes, courier_commission_cents, platform_commission_cents,
+                         address_id, reference)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
      RETURNING *`,
     [
       code,
@@ -160,6 +161,8 @@ export const createOrder = async ({ cart, destination, customer, paymentMethod, 
       String(notes || '').slice(0, 300),
       courierCents,
       platformCents,
+      addressId || customer?.addressId || null,
+      reference || customer?.reference || null,
     ],
   );
 
@@ -194,6 +197,25 @@ export const createOrder = async ({ cart, destination, customer, paymentMethod, 
         seq,
         seq === 1 ? 0 : built.settings.extra_stop_cents,
       ],
+    );
+  }
+
+  // Deducción de billetera por tienda: (total_productos * 0.07) + delivery_tienda
+  for (const stop of built.stops) {
+    const storeProductsCents = built.lines
+      .filter((line) => line.storeId === stop.storeId)
+      .reduce((sum, line) => sum + line.lineTotalCents, 0);
+
+    const storeDeliveryFeeCents = stop.extraFeeCents || 0; // O la cuota base si es la única
+    const storeDeductionCents = Math.round(storeProductsCents * 0.07) + storeDeliveryFeeCents;
+    const storeDeductionUsd = storeDeductionCents / 100;
+
+    await query(
+      `UPDATE stores
+          SET wallet_balance = wallet_balance - $2,
+              is_active = CASE WHEN (wallet_balance - $2) <= $3 THEN false ELSE is_active END
+        WHERE id = $1`,
+      [stop.storeId, storeDeductionUsd, Number(built.settings.max_negative_balance || -10.0)],
     );
   }
 
@@ -260,6 +282,8 @@ export const serializeOrder = (order, { view = 'customer' } = {}) => {
     customerName: order.customer_name,
     customerPhone: full ? order.customer_phone : undefined,
     address: order.address,
+    addressId: order.address_id,
+    reference: order.reference,
     lat: order.lat,
     lng: order.lng,
     deliveryCode: view === 'customer' || view === 'admin' ? order.delivery_code : undefined,

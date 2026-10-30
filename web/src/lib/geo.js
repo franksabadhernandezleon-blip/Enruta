@@ -114,3 +114,55 @@ export const pointAt = (clientX, clientY, element, view) => {
   const yRatio = (clientY - rect.top) / rect.height;
   return unproject(view.x + xRatio * view.width, view.y + yRatio * view.height, view.zoom);
 };
+
+/* ---------------- API de Geo (proxy backend a Nominatim y OSRM) ---------------- */
+/**
+ * Convierte un texto de dirección en coordenadas latitud y longitud a través del proxy backend.
+ */
+export async function geocodeAddress(text) {
+  const response = await fetch('/api/geo/geocode', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || 'No pudimos encontrar esa dirección.');
+  }
+  return data;
+}
+
+/**
+ * Convierte coordenadas (lat, lng) en una dirección legible a través del proxy backend.
+ */
+export async function reverseGeocode(lat, lng) {
+  const response = await fetch('/api/geo/reverse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lat, lng }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || 'No pudimos obtener la dirección para estas coordenadas.');
+  }
+  return data;
+}
+
+/**
+ * Calcula la ruta y distancia real por carretera usando OSRM a través del proxy backend.
+ */
+export async function getRoute(origin, destination) {
+  const response = await fetch('/api/geo/route', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ origin, destination }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || 'No pudimos calcular la ruta.');
+  }
+  return data;
+}

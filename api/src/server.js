@@ -5,11 +5,14 @@ import multer from 'multer';
 import { port, uploadDir, webDistDir } from './config.js';
 import { requireAuth } from './auth.js';
 import { query } from './db.js';
+import addressesRoutes from './routes/addresses.js';
 import adminRoutes from './routes/admin.js';
+import geoRoutes from './routes/geo.js';
 import authRoutes from './routes/auth.js';
 import catalogRoutes from './routes/catalog.js';
 import courierRoutes from './routes/courier.js';
 import ownerRoutes from './routes/owner.js';
+import productsRoutes from './routes/products.js';
 import { startProofCleanup } from './proofs.js';
 import { imageUpload } from './uploads.js';
 
@@ -38,7 +41,10 @@ app.use(
 );
 
 app.use('/api/auth', authRoutes);
+app.use('/api/addresses', addressesRoutes);
+app.use('/api/geo', geoRoutes);
 app.use('/api/owner', ownerRoutes);
+app.use('/api/products', productsRoutes);
 app.use('/api/courier', courierRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', catalogRoutes);
