@@ -6,6 +6,10 @@ import { formatDate } from '../../lib/format.js';
 
 const ROLES = [
   { value: 'customer', label: 'Cliente' },
+  { value: 'owner', label: 'Dueño Tienda' },
+  { value: 'repartidor', label: 'Repartidor 📦' },
+  { value: 'motorizado', label: 'Motorizado 🏍️' },
+  { value: 'conductor', label: 'Conductor 🚗' },
   { value: 'motorizado', label: 'Motorizado 🏍️' },
   { value: 'conductor', label: 'Conductor 🚗' },
   { value: 'repartidor', label: 'Repartidor 📦' },
@@ -123,6 +127,8 @@ export default function AdminCrm() {
             {users.map((user) => {
               const banned =
                 user.bannedPermanent || (user.bannedUntil && new Date(user.bannedUntil) > new Date());
+              const isDriverRole = ['motorizado', 'conductor', 'repartidor'].includes(user.role);
+
               return (
                 <tr key={user.id}>
                   <td data-label="Cuenta">
@@ -143,6 +149,21 @@ export default function AdminCrm() {
                     </select>
                   </td>
                   <td data-label="Vehículo">
+                    {isDriverRole ? (
+                      <select
+                        value={user.vehicleType || 'moto'}
+                        onChange={(e) => handleUpdateUser(user.id, { vehicleType: e.target.value })}
+                        style={{ padding: '0.2rem 0.4rem', borderRadius: '0.25rem', fontSize: '0.85rem' }}
+                      >
+                        {VEHICLES.map((v) => (
+                          <option key={v.value} value={v.value}>
+                            {v.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="muted small">N/A</span>
+                    )}
                     <select
                       value={user.vehicleType || 'moto'}
                       onChange={(e) => handleUpdateUser(user.id, { vehicleType: e.target.value })}

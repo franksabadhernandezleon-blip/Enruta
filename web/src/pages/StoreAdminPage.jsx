@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BellRing, Bike, MapPin, Phone, Plus, RefreshCw, Save, Store as StoreIcon, Trash2, Volume2 } from 'lucide-react';
+import StoreMapPicker from '../components/StoreMapPicker.jsx';
 import MapPicker from '../components/MapPicker.jsx';
 import PhotoInput from '../components/PhotoInput.jsx';
 import ProofPhoto from '../components/ProofPhoto.jsx';
@@ -68,7 +69,6 @@ export default function StoreAdminPage() {
     return () => clearInterval(timer);
   }, [load]);
 
-  // Reloj corto: mantiene al día la cuenta atrás del botón por demora.
   useEffect(() => {
     const timer = setInterval(() => setClock(Date.now()), 10000);
     return () => clearInterval(timer);
@@ -89,7 +89,6 @@ export default function StoreAdminPage() {
     }
   };
 
-  // Estado del botón por demora: espera desde la asignación, no desde la creación.
   const courierWaitText = (order) => {
     const release = order.release;
     if (!release?.courierAssigned) return '';
@@ -336,10 +335,10 @@ export default function StoreAdminPage() {
             <div className="pin-block">
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowPin((prev) => !prev)}>
                 <MapPin size={14} aria-hidden="true" />
-                {showPin ? 'Colapsar ubicación' : 'Ubicación en el mapa'}
+                {showPin ? 'Colapsar ubicación' : 'Ubicación interactiva en el mapa'}
               </button>
               {showPin && (
-                <MapPicker
+                <StoreMapPicker
                   point={{ lat: Number(store?.lat), lng: Number(store?.lng) }}
                   onChange={(point) => setStore((prev) => ({ ...prev, lat: point.lat, lng: point.lng }))}
                   label="Tu tienda"

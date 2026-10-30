@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { Bike, Car, LocateFixed, Route, AlertTriangle } from 'lucide-react';
 import { Bike, Car, LocateFixed, Route } from 'lucide-react';
 import ClientHeader from '../components/ClientHeader.jsx';
 import { Alert, Spinner } from '../components/ui.jsx';
@@ -41,6 +42,15 @@ export default function MototaxiPage() {
   const [reference, setReference] = useState('');
 
   const [routeData, setRouteData] = useState(null);
+  const [routeError, setRouteError] = useState('');
+  const [loadingRoute, setLoadingRoute] = useState(false);
+  const [loadingGps, setLoadingGps] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+
+  const bcvRate = Number(settings.bcvRate || 36.5);
+
+  // Cada vez que cambia el origen o el destino, se consulta OSRM de manera obligatoria.
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [loadingGps, setLoadingGps] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -53,6 +63,18 @@ export default function MototaxiPage() {
     if (!originCoords || !destCoords) return;
 
     setLoadingRoute(true);
+    setRouteError('');
+    setRouteData(null);
+
+    getRoute(originCoords, destCoords)
+      .then((data) => {
+        if (!data || typeof data.distanceKm !== 'number') {
+          throw new Error('No pudimos calcular la ruta por carretera.');
+        }
+        setRouteData(data);
+      })
+      .catch((err) => {
+        setRouteError(err.message || 'Error al calcular la ruta OSRM. Verifica tu conexión a internet.');
     getRoute(originCoords, destCoords)
       .then((data) => {
         setRouteData(data);
@@ -82,6 +104,25 @@ export default function MototaxiPage() {
     };
   }, [destCoords.lat, destCoords.lng]);
 
+  // Tarifas dinámicas desde configuración o valores por defecto
+  const isCarro = vehicleType === 'carro';
+
+  const motoBase = Number(settings.moto_base_fee_cents ?? settings.motoBaseFeeCents ?? 150) / 100;
+  const motoPerKm = Number(settings.moto_per_km_cents ?? settings.motoPerKmCents ?? 60) / 100;
+  const taxiBase = Number(settings.taxi_base_fee_cents ?? settings.taxiBaseFeeCents ?? 250) / 100;
+  const taxiPerKm = Number(settings.taxi_per_km_cents ?? settings.taxiPerKmCents ?? 100) / 100;
+
+  const basePrice = isCarro ? taxiBase : motoBase;
+  const perKmPrice = isCarro ? taxiPerKm : motoPerKm;
+
+  const distanceKm = routeData ? routeData.distanceKm : 0;
+  const durationText = routeData?.durationText || '';
+
+  // Cálculo estricto OSRM: Tarifa Base + (Costo por KM * Distancia OSRM)
+  const calculatedTotalUsd = routeData
+    ? Math.max(basePrice, Math.round((basePrice + distanceKm * perKmPrice) * 100) / 100)
+    : 0;
+
   const distanceKm = routeData?.distanceKm || 1.2;
   const durationText = routeData?.durationText || '5 min';
 
@@ -101,6 +142,9 @@ export default function MototaxiPage() {
   };
 
   const handleUseCurrentLocation = () => {
+    setSubmitError('');
+    if (!navigator.geolocation) {
+      setSubmitError('Geolocalización no soportada en este navegador.');
     setError('');
     if (!navigator.geolocation) {
       setError('Geolocalización no soportada en este navegador.');
@@ -115,6 +159,7 @@ export default function MototaxiPage() {
         setLoadingGps(false);
       },
       () => {
+        setSubmitError('No pudimos obtener tu ubicación actual.');
         setError('No pudimos obtener tu ubicación actual.');
         setLoadingGps(false);
       },
@@ -124,6 +169,13 @@ export default function MototaxiPage() {
 
   const handleSubmitOrder = async (e) => {
     e.preventDefault();
+    setSubmitError('');
+
+    if (!routeData || routeError || loadingRoute) {
+      setSubmitError('No es posible solicitar el viaje sin una ruta OSRM válida. Revisa tu conexión a internet.');
+      return;
+    }
+
     setError('');
     setSubmitting(true);
 
@@ -136,6 +188,7 @@ export default function MototaxiPage() {
         origin_lng: originCoords.lng,
         destination_lat: destCoords.lat,
         destination_lng: destCoords.lng,
+        reference: `${destAddress || 'Destino en mapa'}${reference.trim() ? `. Ref: ${reference.trim()}` : ''}`,
         reference: `${destAddress || 'Destino seleccionado en mapa'}${reference.trim() ? `. Ref: ${reference.trim()}` : ''}`,
         total: calculatedTotalUsd,
         paymentMethod: 'efectivo',
@@ -146,6 +199,10 @@ export default function MototaxiPage() {
       if (response?.order?.code) {
         navigate(`/pedido/${response.order.code}`);
       } else {
+        setSubmitError('No pudimos crear la solicitud. Intenta de nuevo.');
+      }
+    } catch (err) {
+      setSubmitError(err.message || 'Ocurrió un error al procesar tu solicitud de transporte.');
         setError('No pudimos crear la solicitud. Intenta de nuevo.');
       }
     } catch (err) {
@@ -260,12 +317,12 @@ export default function MototaxiPage() {
               gap: '0.4rem',
             }}
           >
+            <Spinner size={14} /> Calculando distancia OSRM por calles...
             <Spinner size={14} /> Recalculando tarifa...
           </div>
         )}
       </div>
-
-      {/* Bottom Sheet deslizable / panel inferior de solicitud */}
+     {/* Bottom Sheet deslizable / panel inferior de solicitud */}
       <div
         style={{
           background: '#ffffff',
@@ -278,6 +335,28 @@ export default function MototaxiPage() {
           overflowY: 'auto',
         }}
       >
+        <Alert>{submitError}</Alert>
+
+        {routeError && (
+          <div
+            style={{
+              background: '#fff5f5',
+              border: '1px solid #feb2b2',
+              color: '#c53030',
+              padding: '0.75rem',
+              borderRadius: '0.5rem',
+              marginBottom: '0.75rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.85rem',
+            }}
+          >
+            <AlertTriangle size={18} />
+            <span>{routeError}</span>
+          </div>
+        )}
+
         <Alert>{error}</Alert>
 
         {/* Selector de Vehículo: Motorizado vs Carro */}
@@ -328,6 +407,7 @@ export default function MototaxiPage() {
         <form onSubmit={handleSubmitOrder} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           <div>
             <label style={{ fontSize: '0.8rem', fontWeight: '600', color: '#666', display: 'block', marginBottom: '0.25rem' }}>
+              📍 Toca o arrastra el pin en el mapa para establecer el destino:
               📍 Toca el mapa para cambiar el destino:
             </label>
             <input
@@ -376,6 +456,15 @@ export default function MototaxiPage() {
           >
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#555' }}>
+                <Route size={15} /> {routeData ? `${distanceKm.toFixed(1)} km · ${durationText}` : 'Calculando ruta...'}
+              </div>
+              <span style={{ fontSize: '0.75rem', color: '#888' }}>Cobro dinámico por calles (OSRM)</span>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <strong style={{ fontSize: '1.3rem', color: routeData ? '#e53e3e' : '#aaa', display: 'block' }}>
+                {routeData ? formatUsd(Math.round(calculatedTotalUsd * 100)) : '--'}
+              </strong>
+              <small style={{ color: '#666' }}>{routeData ? formatBs(calculatedTotalBs) : '--'}</small>
                 <Route size={15} /> {distanceKm.toFixed(1)} km · {durationText}
               </div>
               <span style={{ fontSize: '0.75rem', color: '#888' }}>Tarifa dinámica en tiempo real</span>
@@ -390,6 +479,10 @@ export default function MototaxiPage() {
 
           <button
             type="submit"
+            disabled={submitting || loadingRoute || Boolean(routeError) || !routeData}
+            style={{
+              width: '100%',
+              background: submitting || loadingRoute || routeError || !routeData ? '#a0aec0' : '#e53e3e',
             disabled={submitting}
             style={{
               width: '100%',
@@ -400,11 +493,13 @@ export default function MototaxiPage() {
               padding: '0.85rem',
               fontSize: '1.05rem',
               fontWeight: '700',
+              cursor: submitting || loadingRoute || routeError || !routeData ? 'not-allowed' : 'pointer',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '0.5rem',
+              boxShadow: routeData && !routeError ? '0 4px 12px rgba(229, 62, 62, 0.3)' : 'none',
               boxShadow: '0 4px 12px rgba(229, 62, 62, 0.3)',
             }}
           >
@@ -412,6 +507,15 @@ export default function MototaxiPage() {
               <>
                 <Spinner /> Solicitando transporte...
               </>
+            ) : loadingRoute ? (
+              <>
+                <Spinner /> Calculando tarifa...
+              </>
+            ) : (
+              <>
+                {isCarro ? <Car size={20} /> : <Bike size={20} />}
+                Solicitar {isCarro ? 'Carro' : 'Motorizado'}{' '}
+                {routeData ? `(${formatUsd(Math.round(calculatedTotalUsd * 100))})` : ''}
             ) : (
               <>
                 {isCarro ? <Car size={20} /> : <Bike size={20} />}
