@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { googleClientId, vapidPublicKey } from '../config.js';
 import { bannedNow, httpError, isAdmin, optionalAuth, requireAuth } from '../auth.js';
 import { query } from '../db.js';
-import { createOrder, loadOrder, quoteCart, serializeOrder } from '../orders.js';
+import { createMototaxiOrder, createOrder, loadOrder, quoteCart, serializeOrder } from '../orders.js';
 import {
   addProof,
   canSeeProof,
@@ -193,6 +193,25 @@ router.post('/orders', optionalAuth, proofUpload.single('proof'), async (req, re
       } catch {
         throw httpError(400, 'No pudimos leer los datos del pedido.');
       }
+    }
+
+    if (body.order_type === 'mototaxi' || body.orderType === 'mototaxi') {
+      const order = await createMototaxiOrder({
+        user: req.user,
+        order_type: 'mototaxi',
+        store_id: body.store_id || body.storeId || null,
+        origin_lat: body.origin_lat ?? body.originLat,
+        origin_lng: body.origin_lng ?? body.originLng,
+        destination_lat: body.destination_lat ?? body.destinationLat,
+        destination_lng: body.destination_lng ?? body.destinationLng,
+        reference: body.reference || body.notes || '',
+        total: body.total,
+        customer_name: body.customer_name || body.customerName,
+        customer_phone: body.customer_phone || body.customerPhone,
+        paymentMethod: body.payment_method || body.paymentMethod || 'efectivo',
+      });
+
+      return res.status(201).json({ order: serializeOrder(order, { view: 'customer' }) });
     }
 
     const paymentMethod = String(body.paymentMethod || '');
