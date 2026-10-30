@@ -104,6 +104,12 @@ CREATE SEQUENCE IF NOT EXISTS order_code_seq START 1001;
 CREATE TABLE IF NOT EXISTS orders (
   id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   code                      text NOT NULL UNIQUE,
+  order_type                text NOT NULL DEFAULT 'delivery',
+  store_id                  uuid REFERENCES stores(id) ON DELETE SET NULL,
+  origin_lat                double precision,
+  origin_lng                double precision,
+  destination_lat           double precision,
+  destination_lng           double precision,
   customer_id               uuid REFERENCES users(id) ON DELETE SET NULL,
   customer_name             text NOT NULL DEFAULT '',
   customer_phone            text NOT NULL DEFAULT '',
@@ -257,6 +263,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS addresses_user_default_idx ON addresses (user_
 -- Columnas opcionales de dirección en pedidos.
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS address_id uuid REFERENCES addresses(id) ON DELETE SET NULL;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS reference text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_type text NOT NULL DEFAULT 'delivery';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS store_id uuid REFERENCES stores(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS origin_lat double precision;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS origin_lng double precision;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS destination_lat double precision;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS destination_lng double precision;
 
 CREATE INDEX IF NOT EXISTS orders_status_idx ON orders (status);
 CREATE INDEX IF NOT EXISTS order_items_order_idx ON order_items (order_id);
