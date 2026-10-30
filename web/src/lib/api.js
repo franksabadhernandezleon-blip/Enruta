@@ -141,7 +141,7 @@ export const api = {
     createProduct: (payload) => request('/products', { method: 'POST', body: payload }),
     updateProduct: (id, payload) => request(`/products/${id}`, { method: 'PATCH', body: payload }),
     deleteProduct: (id) => request(`/products/${id}`, { method: 'DELETE' }),
-    orders: () => request('/owner/orders'),
+    orders: (params = {}) => request('/owner/orders'),
     proofs: () => request('/owner/proofs'),
     release: (orderId, pin) =>
       request(`/owner/orders/${orderId}/release`, { method: 'POST', body: { pin } }),
@@ -192,6 +192,7 @@ export const api = {
     cancelOrder: (id, reason) =>
       request(`/admin/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
     users: (q) => request(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    updateUser: (id, payload) => request(`/admin/users/${id}`, { method: 'PATCH', body: payload }),
     ban: (id, payload) => request(`/admin/users/${id}/ban`, { method: 'POST', body: payload }),
     unban: (id) => request(`/admin/users/${id}/unban`, { method: 'POST' }),
     crm: () => request('/admin/crm'),

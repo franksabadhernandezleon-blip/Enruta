@@ -11,6 +11,7 @@ import CheckoutPage from './pages/CheckoutPage.jsx';
 import CourierPage from './pages/CourierPage.jsx';
 import FavoritesPage from './pages/FavoritesPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
+import MototaxiPage from './pages/MototaxiPage.jsx';
 import OrderPage from './pages/OrderPage.jsx';
 import SearchPage from './pages/SearchPage.jsx';
 import StoreAdminPage from './pages/StoreAdminPage.jsx';
@@ -45,12 +46,13 @@ export default function App() {
     <>
       <Routes>
         <Route path="/" element={<CatalogPage />} />
+        <Route path="/mototaxi" element={<MototaxiPage />} />
         <Route path="/tienda/:slug" element={<StorePage />} />
         <Route path="/carrito" element={<CartPage />} />
         <Route
           path="/checkout"
           element={
-            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier', 'motorizado', 'conductor', 'repartidor'].includes(user.role)}>
               <CheckoutPage />
             </Guard>
           }
@@ -58,7 +60,7 @@ export default function App() {
         <Route
           path="/cuenta/direcciones"
           element={
-            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier', 'motorizado', 'conductor', 'repartidor'].includes(user.role)}>
               <AddressesPage />
             </Guard>
           }
@@ -66,7 +68,7 @@ export default function App() {
         <Route
           path="/pedido/:code"
           element={
-            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier', 'motorizado', 'conductor', 'repartidor'].includes(user.role)}>
               <OrderPage />
             </Guard>
           }
@@ -84,7 +86,7 @@ export default function App() {
         <Route
           path="/cuenta"
           element={
-            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier'].includes(user.role)}>
+            <Guard allow={(user) => ['customer', 'owner', 'admin', 'courier', 'motorizado', 'conductor', 'repartidor'].includes(user.role)}>
               <AccountPage />
             </Guard>
           }
@@ -110,7 +112,7 @@ export default function App() {
         <Route
           path="/repartidor"
           element={
-            <Guard allow={(user) => ['courier', 'admin'].includes(user.role)}>
+            <Guard allow={(user) => ['courier', 'admin', 'motorizado', 'conductor', 'repartidor'].includes(user.role)}>
               <CourierPage />
             </Guard>
           }

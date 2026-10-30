@@ -419,6 +419,7 @@ router.get('/users', async (req, res, next) => {
         name: user.name,
         phone: user.phone,
         role: user.role,
+        vehicleType: user.vehicle_type || 'moto',
         bannedPermanent: user.banned_permanent,
         bannedUntil: user.banned_until,
         ordersCount: user.orders_count,
@@ -426,6 +427,27 @@ router.get('/users', async (req, res, next) => {
         createdAt: user.created_at,
       })),
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch('/users/:id', async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const role = body.role ? String(body.role).toLowerCase() : null;
+    const vehicleType = body.vehicleType ? String(body.vehicleType).toLowerCase() : null;
+
+    const { rows } = await query(
+      `UPDATE users SET
+         role = COALESCE($2, role),
+         vehicle_type = COALESCE($3, vehicle_type)
+       WHERE id = $1 RETURNING *`,
+      [req.params.id, role, vehicleType],
+    );
+
+    if (!rows[0]) throw httpError(404, 'Ese usuario no existe.');
+    res.json({ ok: true, user: rows[0] });
   } catch (error) {
     next(error);
   }

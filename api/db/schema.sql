@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS settings (
   payment                  jsonb NOT NULL DEFAULT '{}'::jsonb,
   admin_emails             jsonb NOT NULL DEFAULT '["franksabadhernandezleon@gmail.com"]'::jsonb,
   max_negative_balance     numeric(14,2) NOT NULL DEFAULT -10.00,
+  max_debt_usd             numeric(14,2) NOT NULL DEFAULT 10.00,
+  moto_base_fee_cents      integer NOT NULL DEFAULT 150,
+  moto_per_km_cents        integer NOT NULL DEFAULT 60,
+  taxi_base_fee_cents      integer NOT NULL DEFAULT 250,
+  taxi_per_km_cents        integer NOT NULL DEFAULT 100,
   updated_at               timestamptz NOT NULL DEFAULT now()
 );
 
@@ -37,6 +42,11 @@ CREATE TABLE IF NOT EXISTS users (
   role              text NOT NULL DEFAULT 'customer',
   banned_until      timestamptz,
   banned_permanent  boolean NOT NULL DEFAULT false,
+  wallet_balance    numeric(14,2) NOT NULL DEFAULT 0.00,
+  vehicle_type      text DEFAULT 'moto',
+  vehicle_plate     text,
+  vehicle_model     text,
+  is_available      boolean DEFAULT true,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 
@@ -61,9 +71,22 @@ CREATE TABLE IF NOT EXISTS stores (
   created_at     timestamptz NOT NULL DEFAULT now()
 );
 
+-- Migraciones idempotentes (por si las tablas ya existían antes de añadir estas columnas):
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS wallet_balance numeric(14,2) NOT NULL DEFAULT 0.00;
 ALTER TABLE stores ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+
 ALTER TABLE settings ADD COLUMN IF NOT EXISTS max_negative_balance numeric(14,2) NOT NULL DEFAULT -10.00;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS max_debt_usd numeric(14,2) NOT NULL DEFAULT 10.00;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS moto_base_fee_cents integer NOT NULL DEFAULT 150;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS moto_per_km_cents integer NOT NULL DEFAULT 60;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS taxi_base_fee_cents integer NOT NULL DEFAULT 250;
+ALTER TABLE settings ADD COLUMN IF NOT EXISTS taxi_per_km_cents integer NOT NULL DEFAULT 100;
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_balance numeric(14,2) NOT NULL DEFAULT 0.00;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_type text DEFAULT 'moto';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_plate text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_model text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_available boolean DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS products (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -89,6 +112,13 @@ CREATE SEQUENCE IF NOT EXISTS order_code_seq START 1001;
 CREATE TABLE IF NOT EXISTS orders (
   id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   code                      text NOT NULL UNIQUE,
+  order_type                text NOT NULL DEFAULT 'delivery',
+  vehicle_type              text NOT NULL DEFAULT 'moto',
+  store_id                  uuid REFERENCES stores(id) ON DELETE SET NULL,
+  origin_lat                double precision,
+  origin_lng                double precision,
+  destination_lat           double precision,
+  destination_lng           double precision,
   customer_id               uuid REFERENCES users(id) ON DELETE SET NULL,
   customer_name             text NOT NULL DEFAULT '',
   customer_phone            text NOT NULL DEFAULT '',
@@ -242,6 +272,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS addresses_user_default_idx ON addresses (user_
 -- Columnas opcionales de dirección en pedidos.
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS address_id uuid REFERENCES addresses(id) ON DELETE SET NULL;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS reference text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_type text NOT NULL DEFAULT 'delivery';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS vehicle_type text NOT NULL DEFAULT 'moto';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS store_id uuid REFERENCES stores(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS origin_lat double precision;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS origin_lng double precision;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS destination_lat double precision;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS destination_lng double precision;
 
 CREATE INDEX IF NOT EXISTS orders_status_idx ON orders (status);
 CREATE INDEX IF NOT EXISTS order_items_order_idx ON order_items (order_id);

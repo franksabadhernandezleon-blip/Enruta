@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { httpError } from './auth.js';
 import { query } from './db.js';
 import { courierWaitMinutes } from './config.js';
-import { buildQuote, splitCommission } from './delivery.js';
+import { buildQuote, haversineKm, splitCommission } from './delivery.js';
 import { notifyAdmins, notifyCouriers, notifyEmail } from './push.js';
 import { getSettings } from './settings.js';
 
@@ -254,6 +254,113 @@ export const createOrder = async ({ cart, destination, customer, paymentMethod, 
   return loadOrder({ id: order.id });
 };
 
+/** Crea una solicitud de carrera en Mototaxi/Movilidad (sin tiendas ni columna store_id). */
+export const createMototaxiOrder = async ({
+  user,
+  order_type = 'mototaxi',
+  vehicle_type = 'moto',
+  origin_lat,
+  origin_lng,
+  destination_lat,
+  destination_lng,
+  reference = '',
+  total,
+  customer_name,
+  customer_phone,
+  paymentMethod = 'efectivo',
+}) => {
+  const origLat = Number(origin_lat);
+  const origLng = Number(origin_lng);
+  const destLat = Number(destination_lat);
+  const destLng = Number(destination_lng);
+
+  if (!Number.isFinite(origLat) || !Number.isFinite(origLng) || !Number.isFinite(destLat) || !Number.isFinite(destLng)) {
+    throw httpError(400, 'Faltan coordenadas válidas de origen o destino.');
+  }
+
+  const settings = await getSettings();
+  const rate = Number(settings.bcv_rate || 36.5);
+  const cleanVehicle = String(vehicle_type).toLowerCase() === 'carro' ? 'carro' : 'moto';
+
+  const distanceKm = haversineKm({ lat: origLat, lng: origLng }, { lat: destLat, lng: destLng });
+
+  let calculatedCents = 150;
+  if (cleanVehicle === 'carro') {
+    const baseCents = Number(settings.taxi_base_fee_cents || 250);
+    const perKmCents = Number(settings.taxi_per_km_cents || 100);
+    calculatedCents = Math.max(baseCents, Math.round(baseCents + distanceKm * perKmCents));
+  } else {
+    const baseCents = Number(settings.moto_base_fee_cents || 150);
+    const perKmCents = Number(settings.moto_per_km_cents || 60);
+    calculatedCents = Math.max(baseCents, Math.round(baseCents + distanceKm * perKmCents));
+  }
+
+  const totalVal = total !== undefined ? Math.max(0.50, Number(total)) : calculatedCents / 100;
+  const totalCents = Math.round(totalVal * 100);
+  const totalBs = Math.round((totalCents / 100) * rate * 100) / 100;
+
+  const courierCommissionCents = Math.round(totalCents * 0.90);
+  const platformCommissionCents = Math.round(totalCents * 0.10);
+
+  const code = await nextOrderCode();
+
+  const { rows } = await query(
+    `INSERT INTO orders (
+      code, order_type, vehicle_type, origin_lat, origin_lng, destination_lat, destination_lng,
+      customer_id, customer_name, customer_phone, address, lat, lng, pickup_pin, delivery_code,
+      subtotal_cents, delivery_cents, total_cents, bcv_rate, total_bs, distance_km, extra_stops,
+      payment_method, notes, courier_commission_cents, platform_commission_cents, reference, status
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, 'ready'
+    ) RETURNING *`,
+    [
+      code,
+      'mototaxi',
+      cleanVehicle,
+      origLat,
+      origLng,
+      destLat,
+      destLng,
+      user?.id || null,
+      String(customer_name || user?.name || 'Cliente').slice(0, 120),
+      String(customer_phone || user?.phone || '').slice(0, 40),
+      String(reference || `Viaje en ${cleanVehicle === 'carro' ? 'Carro' : 'Moto'}`).slice(0, 240),
+      destLat,
+      destLng,
+      pin4(),
+      pin4(),
+      0,
+      totalCents,
+      totalCents,
+      rate,
+      totalBs,
+      distanceKm,
+      0,
+      String(paymentMethod || 'efectivo').slice(0, 40),
+      String(reference || '').slice(0, 300),
+      courierCommissionCents,
+      platformCommissionCents,
+      String(reference || '').slice(0, 200),
+    ],
+  );
+
+  const order = rows[0];
+
+  await crm('order', `Solicitud Viaje ${code} (${cleanVehicle}) por ${totalVal.toFixed(2)} USD`, {
+    email: user?.email || null,
+    orderCode: code,
+  });
+
+  await notifyCouriers({
+    title: `🚗/🏍️ Solicitud de Viaje ${code}`,
+    body: `Vehículo: ${cleanVehicle.toUpperCase()} · Distancia ${distanceKm.toFixed(1)} km · Carrera ${totalVal.toFixed(2)} USD`,
+    url: '/repartidor',
+    tag: `radar-${order.id}`,
+  }).catch(() => 0);
+
+  return loadOrder({ id: order.id });
+};
+
 export const loadOrder = async ({ id, code } = {}) => {
   const filter = id ? 'id = $1' : 'code = $1';
   const { rows } = await query(`SELECT * FROM orders WHERE ${filter}`, [id || code]);
@@ -273,6 +380,12 @@ export const serializeOrder = (order, { view = 'customer' } = {}) => {
   return {
     id: order.id,
     code: order.code,
+    orderType: order.order_type || 'delivery',
+    vehicleType: order.vehicle_type || 'moto',
+    originLat: order.origin_lat ? Number(order.origin_lat) : undefined,
+    originLng: order.origin_lng ? Number(order.origin_lng) : undefined,
+    destinationLat: order.destination_lat ? Number(order.destination_lat) : undefined,
+    destinationLng: order.destination_lng ? Number(order.destination_lng) : undefined,
     status: order.status,
     sos: order.sos,
     createdAt: order.created_at,
@@ -538,12 +651,29 @@ export const deliverOrder = async ({ orderId, code, courier }) => {
     [order.id],
   );
 
-  if (order.courier_commission_cents > 0) {
-    await query(
-      `INSERT INTO wallet_entries (courier_id, order_code, amount_cents, kind, note)
-       VALUES ($1, $2, $3, 'earning', $4)`,
-      [order.courier_id || courier?.id, order.code, order.courier_commission_cents, `Entrega ${order.code}`],
-    );
+  const courierId = order.courier_id || courier?.id;
+
+  if (order.order_type === 'mototaxi') {
+    const platformUsd = (order.platform_commission_cents || 0) / 100;
+    if (courierId) {
+      await query(
+        `UPDATE users SET wallet_balance = wallet_balance - $2 WHERE id = $1`,
+        [courierId, platformUsd],
+      );
+      await query(
+        `INSERT INTO wallet_entries (courier_id, order_code, amount_cents, kind, note)
+         VALUES ($1, $2, $3, 'commission', $4)`,
+        [courierId, order.code, -(order.platform_commission_cents || 0), `Comisión Viaje ${order.code}`],
+      );
+    }
+  } else {
+    if (order.courier_commission_cents > 0 && courierId) {
+      await query(
+        `INSERT INTO wallet_entries (courier_id, order_code, amount_cents, kind, note)
+         VALUES ($1, $2, $3, 'earning', $4)`,
+        [courierId, order.code, order.courier_commission_cents, `Entrega ${order.code}`],
+      );
+    }
   }
 
   await crm('delivered', `Pedido ${order.code} entregado`, { orderCode: order.code });

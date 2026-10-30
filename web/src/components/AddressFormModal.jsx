@@ -11,13 +11,7 @@ const LABELS = [
 ];
 
 /**
- * Modal para crear o editar una dirección.
- *
- * Optimización de cuota de Google Maps:
- * - Si el usuario utiliza "Usar mi ubicación actual", se realiza 1 llamada a reverseGeocode()
- *   y las coordenadas (lat, lng) quedan fijas en el estado. Al guardar NO se vuelve a llamar a Geocoding.
- * - Si el usuario escribe la dirección manualmente, SOLO al presionar "Guardar dirección" se llama a geocodeAddress(addressText)
- *   una única vez para obtener lat/lng.
+ * Modal flotante para crear o editar una dirección de entrega.
  */
 export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEdit = null }) {
   const [label, setLabel] = useState('Casa');
@@ -33,14 +27,18 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
       setLabel(addressToEdit.label || 'Casa');
       setAddressText(addressToEdit.addressText || addressToEdit.address_text || '');
       setReference(addressToEdit.reference || '');
-      if (addressToEdit.lat !== undefined && addressToEdit.lng !== undefined) {
+      if (
+        addressToEdit.lat !== undefined &&
+        addressToEdit.lat !== null &&
+        addressToEdit.lng !== undefined &&
+        addressToEdit.lng !== null
+      ) {
         setCoords({ lat: Number(addressToEdit.lat), lng: Number(addressToEdit.lng) });
+        setGpsUsed(true);
       } else {
         setCoords(null);
+        setGpsUsed(false);
       }
-      setGpsUsed(true);
-      setCoords({ lat: addressToEdit.lat, lng: addressToEdit.lng });
-      setGpsUsed(true); // Al editar con coordenadas existentes, no requiere re-geocodificar salvo que edite el texto
     } else {
       setLabel('Casa');
       setAddressText('');
@@ -69,8 +67,6 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
           setCoords({ lat, lng });
           setGpsUsed(true);
 
-          
-          // reverseGeocode invoca la API solo al presionar este botón
           const { formattedAddress } = await reverseGeocode(lat, lng);
           if (formattedAddress) {
             setAddressText(formattedAddress);
@@ -98,31 +94,28 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
     setError('');
 
     if (!addressText.trim()) {
-      setError('Ingresa la dirección.');
+      setError('Ingresa la dirección exacta.');
       return;
     }
 
     setLoading(true);
 
     try {
-      let finalLat = coords?.lat !== undefined ? Number(coords.lat) : null;
-      let finalLng = coords?.lng !== undefined ? Number(coords.lng) : null;
+      let finalLat = coords?.lat !== undefined && coords?.lat !== null ? Number(coords.lat) : null;
+      let finalLng = coords?.lng !== undefined && coords?.lng !== null ? Number(coords.lng) : null;
 
       if (!gpsUsed || finalLat === null || finalLng === null || !Number.isFinite(finalLat) || !Number.isFinite(finalLng)) {
-        const geocoded = await geocodeAddress(addressText);
-        finalLat = Number(geocoded.lat);
-        finalLng = Number(geocoded.lng);
-      let finalLat = coords?.lat;
-      let finalLng = coords?.lng;
-
-      // Si no utilizó ubicación GPS o cambió el texto manualmente, geocodificamos el texto ingresado
-      if (!gpsUsed || !finalLat || !finalLng) {
-        // Unica llamada a Geocoding API al guardar dirección redactada a mano
-        const geocoded = await geocodeAddress(addressText);
-        finalLat = geocoded.lat;
-        finalLng = geocoded.lng;
-        if (geocoded.formattedAddress) {
-          setAddressText(geocoded.formattedAddress);
+        try {
+          const geocoded = await geocodeAddress(addressText.trim());
+          if (geocoded && geocoded.lat && geocoded.lng) {
+            finalLat = Number(geocoded.lat);
+            finalLng = Number(geocoded.lng);
+            if (geocoded.formattedAddress) {
+              setAddressText(geocoded.formattedAddress);
+            }
+          }
+        } catch {
+          // Si falla la geocodificación pero el texto fue ingresado, se permite continuar
         }
       }
 
@@ -132,8 +125,8 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
         reference: reference.trim(),
         lat: finalLat,
         lng: finalLng,
-      }
-        try {
+      };
+
       let savedAddress;
       if (addressToEdit?.id) {
         const response = await api.addresses.update(addressToEdit.id, payload);
@@ -145,78 +138,45 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
 
       if (onSaved) onSaved(savedAddress);
       onClose();
-        } 
-     catch (err) {
+    } catch (err) {
       setError(err.message || 'Ocurrió un error al guardar la dirección.');
-                                                    } finally {
+    } finally {
       setLoading(false);
     }
   };
 
   return (
     <div
-      className="modal-backdrop"
+      className="modal-backdrop bg-black/50 fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 60,
-        display: 'grid',
-        placeItems: 'center',
-        padding: '18px',
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-      }}
     >
       <div
-        className="modal-content"
+        className="modal-content bg-white w-full max-w-lg rounded-xl shadow-xl max-h-[90vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 'min(500px, 100%)',
-          maxHeight: '90vh',
-          overflowY: 'auto',
-          borderRadius: 'var(--radius, 14px)',
-          backgroundColor: '#ffffff',
-          boxShadow: 'var(--shadow, 0 10px 30px rgba(22, 23, 27, 0.08))',
-          padding: '20px',
-        }}
       >
-        <div
-          className="modal-header"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '16px',
-            paddingBottom: '12px',
-            borderBottom: '1px solid var(--line, #e4e6eb)',
-          }}
-        >
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '1.1rem' }}>
+        <div className="modal-header flex items-center justify-between p-4 border-b border-gray-200">
+          <h3 className="text-lg font-semibold flex items-center gap-2 m-0">
             <MapPin size={20} className="text-primary" aria-hidden="true" />
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>
-            <MapPin size={18} aria-hidden="true" />
             {addressToEdit ? 'Editar dirección' : 'Nueva dirección de entrega'}
           </h3>
-          <button type="button" className="btn btn-icon" onClick={onClose} aria-label="Cerrar modal">
-            <X size={18} />
+          <button
+            type="button"
+            className="btn btn-icon p-1 text-gray-500 hover:text-gray-700"
+            onClick={onClose}
+            aria-label="Cerrar modal"
+          >
+            <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <Alert>{error}</Alert>
-
-        <form onSubmit={handleSubmit} className="modal-body">
+        <form onSubmit={handleSubmit} className="modal-body p-4 overflow-y-auto flex-1 space-y-4">
           <Alert>{error}</Alert>
 
           <button
             type="button"
-            className="btn btn-ghost btn-block"
+            className="btn btn-ghost btn-block w-full flex items-center justify-center gap-2 border border-gray-300 py-2 rounded-lg hover:bg-gray-50"
             onClick={handleUseCurrentLocation}
             disabled={loading}
-            style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
           >
             <Navigation size={16} aria-hidden="true" />
             Usar mi ubicación actual
@@ -238,14 +198,12 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
           </Field>
 
           <Field label="Dirección exacta">
-          <Field label="Dirección exactas">
             <input
               type="text"
               value={addressText}
               onChange={(e) => {
                 setAddressText(e.target.value);
                 setGpsUsed(false);
-                setGpsUsed(false); // Al modificar el texto manualmente se requiere re-geocodificar al guardar
               }}
               placeholder="Ej: Calle 3, Sector Las Flores, Casa #45"
               required
@@ -263,33 +221,20 @@ export default function AddressFormModal({ isOpen, onClose, onSaved, addressToEd
             />
           </Field>
 
-          <button
-            type="button"
-            className="btn btn-ghost btn-block"
-            onClick={handleUseCurrentLocation}
-            disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '4px' }}
-          >
-            <Navigation size={16} aria-hidden="true" />
-            Usar mi ubicación actual
-          </button>
-
-          <div
-            className="modal-actions"
-            style={{
-              display: 'flex',
-              gap: '10px',
-              justifyContent: 'flex-end',
-              marginTop: '12px',
-              paddingTop: '12px',
-              borderTop: '1px solid var(--line, #e4e6eb)',
-            }}
-          >
-          <div className="modal-actions" style={{ marginTop: '1.5rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>
+          <div className="modal-actions flex items-center justify-end gap-3 pt-4 border-t border-gray-200 mt-4">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={onClose}
+              disabled={loading}
+            >
               Cancelar
             </button>
-            <button type="submit" className="btn btn-primary" disabled={loading}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={loading}
+            >
               {loading ? (
                 <>
                   <Spinner /> Guardando…

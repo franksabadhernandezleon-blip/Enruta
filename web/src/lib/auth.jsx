@@ -50,7 +50,7 @@ export function AuthProvider({ children }) {
       ready,
       isAdmin: user?.role === 'admin',
       isOwner: user?.role === 'owner' || user?.role === 'admin',
-      isCourier: user?.role === 'courier' || user?.role === 'admin',
+      isCourier: ['courier', 'admin', 'motorizado', 'conductor', 'repartidor'].includes(user?.role),
       login: async (payload) => apply(await api.login(payload)),
       register: async (payload) => apply(await api.register(payload)),
       loginWithGoogle: async (credential) => apply(await api.google(credential)),
