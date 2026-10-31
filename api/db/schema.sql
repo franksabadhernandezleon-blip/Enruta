@@ -314,3 +314,30 @@ CREATE TABLE IF NOT EXISTS driver_reports (
 
 CREATE INDEX IF NOT EXISTS driver_reports_driver_id_idx ON driver_reports (driver_id);
 CREATE INDEX IF NOT EXISTS driver_reports_created_at_idx ON driver_reports (created_at DESC);
+
+-- Solicitudes de registro de tiendas y trabajadores (motorizado, taxista, repartidor)
+CREATE TABLE IF NOT EXISTS registration_requests (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid REFERENCES users(id) ON DELETE CASCADE,
+  type            text NOT NULL CHECK (type IN ('store', 'worker')),
+  role_requested  text NOT NULL CHECK (role_requested IN ('owner', 'motorizado', 'conductor', 'repartidor')),
+  applicant_name  text NOT NULL,
+  applicant_email text NOT NULL,
+  applicant_phone text NOT NULL,
+  document_id     text,
+  document_url    text,
+  vehicle_type    text,
+  vehicle_plate   text,
+  vehicle_model   text,
+  store_name      text,
+  store_address   text,
+  details         text DEFAULT '',
+  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  reviewed_by     uuid REFERENCES users(id) ON DELETE SET NULL,
+  reviewed_at     timestamptz,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS registration_requests_status_idx ON registration_requests (status);
+CREATE INDEX IF NOT EXISTS registration_requests_user_id_idx ON registration_requests (user_id);
+CREATE INDEX IF NOT EXISTS registration_requests_created_at_idx ON registration_requests (created_at DESC);

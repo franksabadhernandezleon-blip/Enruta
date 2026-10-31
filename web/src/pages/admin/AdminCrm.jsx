@@ -1,5 +1,18 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle, RefreshCw, Search, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-react';
+import {
+  AlertTriangle,
+  Bike,
+  Check,
+  CheckCircle,
+  FileText,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldOff,
+  Store as StoreIcon,
+  X,
+} from 'lucide-react';
 import { Alert, Section, Spinner } from '../../components/ui.jsx';
 import { api } from '../../lib/api.js';
 import { formatDate } from '../../lib/format.js';
@@ -22,27 +35,66 @@ export default function AdminCrm() {
   const [users, setUsers] = useState([]);
   const [events, setEvents] = useState([]);
   const [reports, setReports] = useState([]);
+  const [regRequests, setRegRequests] = useState([]);
   const [query, setQuery] = useState('');
   const [days, setDays] = useState(7);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [processingReqId, setProcessingReqId] = useState('');
 
   const load = async () => {
     setLoading(true);
     try {
-      const [userData, eventData, reportData] = await Promise.all([
+      const [userData, eventData, reportData, regData] = await Promise.all([
         api.admin.users(query),
         api.admin.crm(),
         api.admin.driverReports(),
+        api.admin.registrationRequests('pending'),
       ]);
       setUsers(userData.users);
       setEvents(eventData.events);
       setReports(reportData.reports || []);
+      setRegRequests(regData.requests || []);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApproveRequest = async (reqItem) => {
+    if (!window.confirm(`¿Aprobar la solicitud de ${reqItem.applicantName} (${reqItem.type === 'store' ? `Tienda ${reqItem.storeName}` : reqItem.roleRequested})?`)) {
+      return;
+    }
+    setProcessingReqId(reqItem.id);
+    setError('');
+    setMessage('');
+    try {
+      await api.admin.approveRegistration(reqItem.id);
+      setMessage(`Solicitud de ${reqItem.applicantName} aprobada con éxito.`);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProcessingReqId('');
+    }
+  };
+
+  const handleRejectRequest = async (reqItem) => {
+    const reason = window.prompt('Motivo del rechazo de la solicitud:', 'Documentación incompleta o no válida');
+    if (reason === null) return;
+    setProcessingReqId(reqItem.id);
+    setError('');
+    setMessage('');
+    try {
+      await api.admin.rejectRegistration(reqItem.id, reason);
+      setMessage(`Solicitud de ${reqItem.applicantName} rechazada.`);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProcessingReqId('');
     }
   };
 
@@ -301,6 +353,117 @@ export default function AdminCrm() {
             })}
           </tbody>
         </table>
+      </Section>
+
+      {/* Sección de Solicitudes Pendientes de Registro (Tiendas y Trabajadores) */}
+      <Section
+        title={`Solicitudes Pendientes de Registro (${regRequests.length})`}
+        subtitle="Postulaciones de nuevas tiendas y conductores / repartidores para revisión y aprobación"
+      >
+        <ul className="admin-list">
+          {regRequests.map((reqItem) => (
+            <li key={reqItem.id} className="is-stacked">
+              <div className="admin-row-main">
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
+                    <span
+                      style={{
+                        background: reqItem.type === 'store' ? '#feebc8' : '#c6f6d5',
+                        color: reqItem.type === 'store' ? '#7b341e' : '#22543d',
+                        fontWeight: '700',
+                        fontSize: '0.78rem',
+                        padding: '0.2rem 0.55rem',
+                        borderRadius: '1rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.25rem',
+                      }}
+                    >
+                      {reqItem.type === 'store' ? (
+                        <>
+                          <StoreIcon size={13} /> TIENDA / COMERCIO
+                        </>
+                      ) : (
+                        <>
+                          <Bike size={13} /> TRABAJADOR ({reqItem.roleRequested.toUpperCase()})
+                        </>
+                      )}
+                    </span>
+                    <strong>{reqItem.applicantName}</strong>
+                    <span className="muted small">{formatDate(reqItem.createdAt)}</span>
+                  </div>
+
+                  <div style={{ fontSize: '0.9rem', color: '#2d3748', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <div>
+                      <b>Correo:</b> {reqItem.applicantEmail} · <b>Tel/WhatsApp:</b> {reqItem.applicantPhone}
+                      {reqItem.documentId && <span> · <b>Cédula/RIF:</b> {reqItem.documentId}</span>}
+                    </div>
+
+                    {reqItem.type === 'store' && (
+                      <div>
+                        <b>Nombre Tienda:</b> {reqItem.storeName}
+                        {reqItem.storeAddress && <span> · <b>Dirección:</b> {reqItem.storeAddress}</span>}
+                      </div>
+                    )}
+
+                    {reqItem.type === 'worker' && (
+                      <div>
+                        <b>Vehículo:</b> {reqItem.vehicleType === 'carro' ? 'Carro 🚗' : 'Moto 🏍️'}
+                        {reqItem.vehicleModel && <span> ({reqItem.vehicleModel})</span>}
+                        {reqItem.vehiclePlate && <span> · <b>Placa:</b> {reqItem.vehiclePlate}</span>}
+                      </div>
+                    )}
+
+                    {reqItem.details && (
+                      <div className="muted small" style={{ marginTop: '0.15rem' }}>
+                        <b>Detalles:</b> <i>"{reqItem.details}"</i>
+                      </div>
+                    )}
+
+                    {reqItem.documentUrl && (
+                      <div style={{ marginTop: '0.35rem' }}>
+                        <a
+                          href={reqItem.documentUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn btn-ghost btn-sm"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#2b6cb0', padding: '0.2rem 0.5rem' }}
+                        >
+                          <FileText size={13} /> Ver Documento / Cédula adjunta
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="inline-actions" style={{ gap: '0.4rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    style={{ background: '#38a169', borderColor: '#2f855a' }}
+                    onClick={() => handleApproveRequest(reqItem)}
+                    disabled={processingReqId === reqItem.id}
+                  >
+                    {processingReqId === reqItem.id ? <Spinner /> : <Check size={14} aria-hidden="true" />}
+                    Aprobar y Activar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm btn-danger"
+                    onClick={() => handleRejectRequest(reqItem)}
+                    disabled={processingReqId === reqItem.id}
+                  >
+                    <X size={14} aria-hidden="true" />
+                    Rechazar
+                  </button>
+                </div>
+              </div>
+            </li>
+          ))}
+          {!regRequests.length && (
+            <li className="muted">No hay solicitudes de registro pendientes de aprobación.</li>
+          )}
+        </ul>
       </Section>
 
       {/* Sección de Alertas Rojas y Reportes de Clientes (Anti-Desintermediación) */}

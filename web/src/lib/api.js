@@ -122,6 +122,7 @@ export const api = {
   addOrderProof,
   reportOrder: (code, payload) => request(`/orders/${code}/report`, { method: 'POST', body: payload }),
   cancelOrder: (code, reason) => request(`/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
+  submitRegistrationRequest: (payload) => request('/register-request', { method: 'POST', body: payload }),
 
   addresses: {
     list: () => request('/addresses'),
@@ -212,5 +213,11 @@ export const api = {
     driverReports: () => request('/admin/driver-reports'),
     fraudBlock: (id) => request(`/admin/users/${id}/fraud-block`, { method: 'POST' }),
     resetRisk: (id) => request(`/admin/users/${id}/reset-risk`, { method: 'POST' }),
+    registrationRequests: (status = 'pending') =>
+      request(`/admin/registration-requests?status=${encodeURIComponent(status)}`),
+    approveRegistration: (id) =>
+      request(`/admin/registration-requests/${id}/approve`, { method: 'POST' }),
+    rejectRegistration: (id, reason) =>
+      request(`/admin/registration-requests/${id}/reject`, { method: 'POST', body: { reason } }),
   },
 };

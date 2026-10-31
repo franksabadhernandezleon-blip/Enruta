@@ -441,4 +441,86 @@ router.post('/orders/:code/report', optionalAuth, async (req, res, next) => {
   }
 });
 
+// Solicitud de registro de tienda o de trabajador (motorizado, taxista, repartidor)
+router.post('/register-request', requireAuth, async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const type = String(body.type || '').trim().toLowerCase(); // 'store' o 'worker'
+    if (!['store', 'worker'].includes(type)) {
+      throw httpError(400, 'Tipo de solicitud inválido. Debe ser tienda o trabajador.');
+    }
+
+    const roleRequested = String(body.roleRequested || '').trim().toLowerCase();
+    const validRoles = type === 'store' ? ['owner'] : ['motorizado', 'conductor', 'repartidor'];
+    if (!validRoles.includes(roleRequested)) {
+      throw httpError(400, `Rol solicitado inválido para ${type === 'store' ? 'tienda' : 'trabajador'}.`);
+    }
+
+    const applicantName = String(body.applicantName || req.user.name || '').trim();
+    const applicantEmail = String(body.applicantEmail || req.user.email || '').trim().toLowerCase();
+    const applicantPhone = String(body.applicantPhone || req.user.phone || '').trim();
+    const documentId = String(body.documentId || '').trim();
+    const documentUrl = body.documentUrl ? String(body.documentUrl).trim() : null;
+    const vehicleType = body.vehicleType ? String(body.vehicleType).trim().toLowerCase() : null;
+    const vehiclePlate = body.vehiclePlate ? String(body.vehiclePlate).trim().toUpperCase() : null;
+    const vehicleModel = body.vehicleModel ? String(body.vehicleModel).trim() : null;
+    const storeName = body.storeName ? String(body.storeName).trim() : null;
+    const storeAddress = body.storeAddress ? String(body.storeAddress).trim() : null;
+    const details = body.details ? String(body.details).trim() : '';
+
+    if (!applicantName) throw httpError(400, 'Ingresa tu nombre completo.');
+    if (!applicantPhone) throw httpError(400, 'Ingresa tu número de teléfono / WhatsApp.');
+    if (type === 'store' && !storeName) throw httpError(400, 'Ingresa el nombre de la tienda o negocio.');
+
+    const { rows } = await query(
+      `INSERT INTO registration_requests
+         (user_id, type, role_requested, applicant_name, applicant_email, applicant_phone,
+          document_id, document_url, vehicle_type, vehicle_plate, vehicle_model,
+          store_name, store_address, details, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending')
+       RETURNING *`,
+      [
+        req.user.id,
+        type,
+        roleRequested,
+        applicantName,
+        applicantEmail,
+        applicantPhone,
+        documentId || null,
+        documentUrl,
+        vehicleType,
+        vehiclePlate,
+        vehicleModel,
+        storeName,
+        storeAddress,
+        details,
+      ],
+    );
+
+    await query('INSERT INTO crm_events (email, kind, note) VALUES ($1, $2, $3)', [
+      applicantEmail,
+      'registration_request',
+      `Solicitud de registro: ${type === 'store' ? `Tienda ${storeName}` : `Trabajador (${roleRequested})`}`,
+    ]);
+
+    // Notificar administradores
+    const settings = await getSettings();
+    const adminEmails = (settings.admin_emails || []).map((e) => String(e).toLowerCase());
+    await notifyAdmins(adminEmails, {
+      title: '📋 Nueva solicitud de registro',
+      body: `${applicantName} se ha postulado como ${type === 'store' ? `Tienda (${storeName})` : `Trabajador (${roleRequested})`}.`,
+      url: '/tuteteno',
+      tag: `reg-req-${rows[0].id}`,
+    }).catch(() => 0);
+
+    res.status(201).json({
+      ok: true,
+      request: rows[0],
+      message: 'Solicitud enviada exitosamente. El equipo de ENRUTA la revisará a la brevedad.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
