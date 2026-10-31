@@ -53,6 +53,8 @@ export default function CourierPage() {
   const [codes, setCodes] = useState({});
   const [startPins, setStartPins] = useState({});
   const [pinToast, setPinToast] = useState('');
+  const [pinValidMap, setPinValidMap] = useState({});
+  const [pinCheckingMap, setPinCheckingMap] = useState({});
   const [payoutAmount, setPayoutAmount] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -152,6 +154,29 @@ export default function CourierPage() {
     }
   };
 
+  const validatePinLive = async (orderId, pinVal) => {
+    const trimmed = String(pinVal || '').trim();
+    if (trimmed.length < 4) {
+      setPinValidMap((prev) => ({ ...prev, [orderId]: false }));
+      return;
+    }
+    setPinCheckingMap((prev) => ({ ...prev, [orderId]: true }));
+    try {
+      const res = await api.courier.validatePin(orderId, trimmed);
+      if (res?.valid) {
+        setPinValidMap((prev) => ({ ...prev, [orderId]: true }));
+        setPinToast('');
+      } else {
+        setPinValidMap((prev) => ({ ...prev, [orderId]: false }));
+      }
+    } catch (err) {
+      setPinValidMap((prev) => ({ ...prev, [orderId]: false }));
+      setPinToast(err.message);
+    } finally {
+      setPinCheckingMap((prev) => ({ ...prev, [orderId]: false }));
+    }
+  };
+
   const startRoute = async (order) => {
     setError('');
     setPinToast('');
@@ -159,9 +184,9 @@ export default function CourierPage() {
       const isTransport = order.orderType === 'mototaxi' || order.orderType === 'taxi';
       if (isTransport) {
         const pin = String(startPins[order.id] || '').trim();
-        if (!pin) {
-          setPinToast('Ingresa el PIN del cliente para iniciar');
-          setError('Ingresa el PIN del cliente para iniciar');
+        if (!pin || pin.length < 4) {
+          setPinToast('Ingresa el PIN de 4 dígitos del cliente para iniciar');
+          setError('Ingresa el PIN de 4 dígitos del cliente para iniciar');
           setTimeout(() => setPinToast(''), 3000);
           return;
         }
@@ -619,24 +644,48 @@ export default function CourierPage() {
                         subtitle="El cliente debe dictarte su código PIN de seguridad de 4 dígitos antes de partir"
                       >
                         <Field label="PIN de seguridad del pasajero (4 dígitos)">
-                          <input
-                            value={startPins[active.id] || ''}
-                            onChange={(event) => {
-                              const val = event.target.value;
-                              setStartPins((prev) => ({ ...prev, [active.id]: val }));
-                              if (pinToast) setPinToast('');
-                            }}
-                            inputMode="numeric"
-                            placeholder="Ej. 1234"
-                            maxLength={6}
-                            style={{
-                              fontSize: '1.3rem',
-                              letterSpacing: '0.25rem',
-                              fontWeight: '700',
-                              textAlign: 'center',
-                            }}
-                          />
+                          <div style={{ position: 'relative' }}>
+                            <input
+                              value={startPins[active.id] || ''}
+                              onChange={(event) => {
+                                const val = event.target.value;
+                                setStartPins((prev) => ({ ...prev, [active.id]: val }));
+                                if (pinToast) setPinToast('');
+                                if (val.trim().length >= 4) {
+                                  validatePinLive(active.id, val.trim());
+                                } else {
+                                  setPinValidMap((prev) => ({ ...prev, [active.id]: false }));
+                                }
+                              }}
+                              inputMode="numeric"
+                              placeholder="Ej. 1234"
+                              maxLength={6}
+                              style={{
+                                fontSize: '1.4rem',
+                                letterSpacing: '0.35rem',
+                                fontWeight: '700',
+                                textAlign: 'center',
+                                borderColor: pinValidMap[active.id]
+                                  ? '#38a169'
+                                  : (startPins[active.id] || '').trim().length >= 4
+                                  ? '#e53e3e'
+                                  : undefined,
+                                borderWidth: '2px',
+                              }}
+                            />
+                            {pinCheckingMap[active.id] && (
+                              <span style={{ position: 'absolute', right: '12px', top: '10px' }}>
+                                <Spinner />
+                              </span>
+                            )}
+                          </div>
                         </Field>
+
+                        {pinValidMap[active.id] && (
+                          <div style={{ color: '#276749', background: '#c6f6d5', padding: '0.4rem 0.6rem', borderRadius: '0.4rem', fontSize: '0.85rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <ShieldCheck size={16} /> PIN correcto. Puedes iniciar el viaje con seguridad.
+                          </div>
+                        )}
 
                         {pinToast && (
                           <p style={{ color: '#e53e3e', fontSize: '0.85rem', fontWeight: '600', margin: '0.25rem 0' }}>
@@ -648,18 +697,23 @@ export default function CourierPage() {
                           <button
                             type="button"
                             className="btn btn-block"
+                            disabled={!pinValidMap[active.id] && !startPins[active.id]?.trim()}
                             style={{
-                              background: startPins[active.id]?.trim() ? '#38a169' : '#a0aec0',
-                              borderColor: startPins[active.id]?.trim() ? '#2f855a' : '#a0aec0',
+                              background: pinValidMap[active.id]
+                                ? '#38a169'
+                                : '#a0aec0',
+                              borderColor: pinValidMap[active.id]
+                                ? '#2f855a'
+                                : '#a0aec0',
                               color: '#ffffff',
                               fontWeight: '700',
                               transition: 'all 0.25s ease',
-                              cursor: 'pointer',
+                              cursor: pinValidMap[active.id] ? 'pointer' : 'not-allowed',
                             }}
                             onClick={() => startRoute(active)}
                           >
                             <Route size={15} aria-hidden="true" />
-                            Iniciar viaje (Pasajero a bordo)
+                            {pinValidMap[active.id] ? 'Iniciar viaje (Pasajero a bordo)' : 'Ingresa el PIN para iniciar'}
                           </button>
                         </div>
 
@@ -855,13 +909,21 @@ export default function CourierPage() {
                 <b>{formatUsd(wallet.pendingCents)}</b>
               </div>
 
-              <Field label="Monto a liquidar (USD)">
-                <input value={payoutAmount} onChange={(event) => setPayoutAmount(event.target.value)} inputMode="decimal" />
-              </Field>
-              <button type="button" className="btn btn-primary btn-block" onClick={requestPayout}>
-                <Wallet size={15} aria-hidden="true" />
-                Solicitar liquidación / cierre
-              </button>
+              {isSuspended ? (
+                <div style={{ background: '#fed7d7', color: '#9b2c2c', padding: '0.75rem', borderRadius: '0.5rem', fontWeight: '600', fontSize: '0.85rem', marginTop: '1rem' }}>
+                  🚫 Billetera congelada por suspensión activa o Alerta Roja. No es posible solicitar liquidaciones hasta que la administración restablezca la cuenta.
+                </div>
+              ) : (
+                <>
+                  <Field label="Monto a liquidar (USD)">
+                    <input value={payoutAmount} onChange={(event) => setPayoutAmount(event.target.value)} inputMode="decimal" />
+                  </Field>
+                  <button type="button" className="btn btn-primary btn-block" onClick={requestPayout}>
+                    <Wallet size={15} aria-hidden="true" />
+                    Solicitar liquidación / cierre
+                  </button>
+                </>
+              )}
             </Section>
 
             <Section title="Movimientos" subtitle="Entregas, comisiones y pagos">

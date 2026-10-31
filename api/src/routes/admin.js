@@ -688,4 +688,156 @@ router.post('/push/test', async (req, res, next) => {
   }
 });
 
+/* -------------------- Solicitudes de Registro (Aprobación) ------------------ */
+
+router.get('/registration-requests', async (req, res, next) => {
+  try {
+    const status = req.query.status || 'pending';
+    let where = '';
+    const params = [];
+    if (status !== 'all') {
+      params.push(status);
+      where = 'WHERE rr.status = $1';
+    }
+
+    const { rows } = await query(
+      `SELECT rr.*, u.email AS current_user_email, u.role AS current_user_role
+         FROM registration_requests rr
+         LEFT JOIN users u ON u.id = rr.user_id
+        ${where}
+        ORDER BY rr.created_at DESC LIMIT 60`,
+      params,
+    );
+
+    res.json({
+      requests: rows.map((r) => ({
+        id: r.id,
+        userId: r.user_id,
+        type: r.type,
+        roleRequested: r.role_requested,
+        applicantName: r.applicant_name,
+        applicantEmail: r.applicant_email,
+        applicantPhone: r.applicant_phone,
+        documentId: r.document_id,
+        documentUrl: r.document_url,
+        vehicleType: r.vehicle_type,
+        vehiclePlate: r.vehicle_plate,
+        vehicleModel: r.vehicle_model,
+        storeName: r.store_name,
+        storeAddress: r.store_address,
+        details: r.details,
+        status: r.status,
+        reviewedBy: r.reviewed_by,
+        reviewedAt: r.reviewed_at,
+        createdAt: r.created_at,
+        currentUserRole: r.current_user_role,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/registration-requests/:id/approve', async (req, res, next) => {
+  try {
+    const { rows } = await query('SELECT * FROM registration_requests WHERE id = $1', [req.params.id]);
+    const request = rows[0];
+    if (!request) throw httpError(404, 'Esa solicitud no existe.');
+    if (request.status === 'approved') throw httpError(409, 'Esta solicitud ya fue aprobada.');
+
+    const targetUserId = request.user_id;
+
+    if (request.type === 'worker') {
+      // Asignar rol y vehículo al usuario
+      await query(
+        `UPDATE users
+            SET role = $2,
+                vehicle_type = COALESCE($3, vehicle_type),
+                vehicle_plate = COALESCE($4, vehicle_plate),
+                vehicle_model = COALESCE($5, vehicle_model)
+          WHERE id = $1`,
+        [targetUserId, request.role_requested, request.vehicle_type || 'moto', request.vehicle_plate, request.vehicle_model],
+      );
+    } else if (request.type === 'store') {
+      // Actualizar rol del usuario a 'owner'
+      await query("UPDATE users SET role = 'owner' WHERE id = $1", [targetUserId]);
+
+      // Verificar si ya existe una tienda con el slug generado o crear una nueva
+      const storeName = request.store_name || 'Mi Tienda';
+      const slugCandidate = slugify(storeName);
+      const existingStore = await query('SELECT id FROM stores WHERE slug = $1', [slugCandidate]);
+      const finalSlug = existingStore.rows[0] ? `${slugCandidate}-${Date.now().toString(36).slice(-4)}` : slugCandidate;
+
+      await query(
+        `INSERT INTO stores (owner_id, owner_email, name, slug, address, phone, description, open, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, true, true)`,
+        [
+          targetUserId,
+          request.applicant_email,
+          storeName,
+          finalSlug,
+          request.store_address || '',
+          request.applicant_phone || '',
+          request.details || '',
+        ],
+      );
+    }
+
+    // Marcar solicitud como aprobada
+    await query(
+      `UPDATE registration_requests
+          SET status = 'approved', reviewed_by = $2, reviewed_at = now()
+        WHERE id = $1`,
+      [request.id, req.user.id],
+    );
+
+    await query('INSERT INTO crm_events (email, kind, note) VALUES ($1, $2, $3)', [
+      request.applicant_email,
+      'registration_approved',
+      `Solicitud aprobada: ${request.type === 'store' ? `Tienda ${request.store_name}` : `Trabajador (${request.role_requested})`}`,
+    ]);
+
+    // Notificar al postulante si tiene Web Push
+    await notify({
+      roles: [],
+      emails: [request.applicant_email],
+      payload: {
+        title: '🎉 ¡Solicitud Aprobada en ENRUTA!',
+        body: request.type === 'store'
+          ? `Tu tienda "${request.store_name}" ha sido activada con éxito.`
+          : `Tu cuenta ha sido activada como ${request.role_requested.toUpperCase()}. ¡Bienvenido al equipo!`,
+        url: request.type === 'store' ? '/mitienda' : '/repartidor',
+        tag: `approved-${request.id}`,
+      },
+    }).catch(() => 0);
+
+    res.json({ ok: true, message: 'Solicitud aprobada con éxito.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/registration-requests/:id/reject', async (req, res, next) => {
+  try {
+    const reason = String(req.body?.reason || '').trim();
+    const { rows } = await query(
+      `UPDATE registration_requests
+          SET status = 'rejected', reviewed_by = $2, reviewed_at = now()
+        WHERE id = $1 RETURNING *`,
+      [req.params.id, req.user.id],
+    );
+    if (!rows[0]) throw httpError(404, 'Esa solicitud no existe.');
+
+    await query('INSERT INTO crm_events (email, kind, note) VALUES ($1, $2, $3)', [
+      rows[0].applicant_email,
+      'registration_rejected',
+      `Solicitud rechazada: ${reason || 'Sin motivo especificado'}`,
+    ]);
+
+    res.json({ ok: true, message: 'Solicitud rechazada.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
