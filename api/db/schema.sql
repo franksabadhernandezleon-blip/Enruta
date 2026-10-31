@@ -87,8 +87,16 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_type text DEFAULT 'moto';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_plate text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_model text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_available boolean DEFAULT true;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS risk_level text NOT NULL DEFAULT 'green';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS cancellation_count integer NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_until timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS consecutive_completed_trips integer NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reports_count integer NOT NULL DEFAULT 0;
 
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS origin_address text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_by text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancel_reason text;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS pin_failed_attempts integer NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS products (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -288,3 +296,21 @@ CREATE INDEX IF NOT EXISTS order_items_order_idx ON order_items (order_id);
 CREATE INDEX IF NOT EXISTS order_stops_order_idx ON order_stops (order_id);
 CREATE INDEX IF NOT EXISTS payment_proofs_order_idx ON payment_proofs (order_id);
 CREATE INDEX IF NOT EXISTS payment_proofs_expires_idx ON payment_proofs (expires_at);
+
+-- Reportes de clientes para prevención de desintermediación y control de fraude
+CREATE TABLE IF NOT EXISTS driver_reports (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id      uuid REFERENCES orders(id) ON DELETE SET NULL,
+  order_code    text,
+  customer_id   uuid REFERENCES users(id) ON DELETE SET NULL,
+  customer_name text NOT NULL DEFAULT '',
+  driver_id     uuid REFERENCES users(id) ON DELETE CASCADE,
+  driver_name   text NOT NULL DEFAULT '',
+  reason        text NOT NULL,
+  details       text DEFAULT '',
+  is_fraud      boolean NOT NULL DEFAULT false,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS driver_reports_driver_id_idx ON driver_reports (driver_id);
+CREATE INDEX IF NOT EXISTS driver_reports_created_at_idx ON driver_reports (created_at DESC);

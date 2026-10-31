@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, ShieldOff, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle, RefreshCw, Search, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-react';
 import { Alert, Section, Spinner } from '../../components/ui.jsx';
 import { api } from '../../lib/api.js';
 import { formatDate } from '../../lib/format.js';
@@ -21,6 +21,7 @@ const VEHICLES = [
 export default function AdminCrm() {
   const [users, setUsers] = useState([]);
   const [events, setEvents] = useState([]);
+  const [reports, setReports] = useState([]);
   const [query, setQuery] = useState('');
   const [days, setDays] = useState(7);
   const [error, setError] = useState('');
@@ -30,9 +31,14 @@ export default function AdminCrm() {
   const load = async () => {
     setLoading(true);
     try {
-      const [userData, eventData] = await Promise.all([api.admin.users(query), api.admin.crm()]);
+      const [userData, eventData, reportData] = await Promise.all([
+        api.admin.users(query),
+        api.admin.crm(),
+        api.admin.driverReports(),
+      ]);
       setUsers(userData.users);
       setEvents(eventData.events);
+      setReports(reportData.reports || []);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -54,6 +60,36 @@ export default function AdminCrm() {
       await load();
     } catch (requestError) {
       setError(requestError.message);
+    }
+  };
+
+  const handleFraudBlock = async (user) => {
+    if (!window.confirm(`¿Confirmas el bloqueo permanente por FRAUDE para ${user.name || user.email}?`)) {
+      return;
+    }
+    setError('');
+    setMessage('');
+    try {
+      await api.admin.fraudBlock(user.id);
+      setMessage(`Conductor ${user.email} bloqueado permanentemente por fraude (Alerta Roja).`);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleResetRisk = async (user) => {
+    if (!window.confirm(`¿Restablecer el semáforo a VERDE y perdonar sanciones a ${user.name || user.email}?`)) {
+      return;
+    }
+    setError('');
+    setMessage('');
+    try {
+      await api.admin.resetRisk(user.id);
+      setMessage(`Semáforo de ${user.email} restablecido a Verde exitosamente.`);
+      await load();
+    } catch (err) {
+      setError(err.message);
     }
   };
 
@@ -114,15 +150,18 @@ export default function AdminCrm() {
               <th>Cuenta</th>
               <th>Rol</th>
               <th>Vehículo</th>
+              <th>Semáforo & Riesgo</th>
               <th>Pedidos / Viajes</th>
               <th>Estado</th>
-              <th />
+              <th>Acciones de Sanción</th>
             </tr>
           </thead>
           <tbody>
             {users.map((user) => {
               const banned =
                 user.bannedPermanent || (user.bannedUntil && new Date(user.bannedUntil) > new Date());
+              const isSuspended =
+                banned || (user.suspendedUntil && new Date(user.suspendedUntil) > new Date()) || user.riskLevel === 'red';
               const isDriverRole = ['motorizado', 'conductor', 'repartidor'].includes(user.role);
 
               return (
@@ -161,35 +200,99 @@ export default function AdminCrm() {
                       <span className="muted small">N/A</span>
                     )}
                   </td>
+                  <td data-label="Semáforo & Riesgo">
+                    {isDriverRole ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        <div>
+                          {user.riskLevel === 'yellow' ? (
+                            <span
+                              className="status"
+                              style={{
+                                background: '#fefcbf',
+                                color: '#744210',
+                                border: '1px solid #ecc94b',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                              }}
+                            >
+                              🟡 Amarillo
+                            </span>
+                          ) : user.riskLevel === 'red' || isSuspended ? (
+                            <span
+                              className="status status-cancelled"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                            >
+                              🔴 Rojo (Riesgo)
+                            </span>
+                          ) : (
+                            <span
+                              className="status status-delivered"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+                            >
+                              🟢 Verde (Seguro)
+                            </span>
+                          )}
+                        </div>
+                        <span className="muted small">
+                          Cancelaciones: <b>{user.cancellationCount || 0}</b> | Reportes: <b>{user.reportsCount || 0}</b>
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="muted small">N/A</span>
+                    )}
+                  </td>
                   <td data-label="Pedidos / Viajes">
                     {user.ordersCount} / {user.deliveriesCount}
                   </td>
                   <td data-label="Estado">
-                    {banned ? (
+                    {isSuspended ? (
                       <span className="status status-cancelled">
-                        {user.bannedPermanent ? 'Permanente' : `Hasta ${formatDate(user.bannedUntil)}`}
+                        {user.bannedPermanent
+                          ? 'Permanente'
+                          : user.suspendedUntil
+                          ? `Suspendido 72h`
+                          : `Hasta ${formatDate(user.bannedUntil)}`}
                       </span>
                     ) : (
                       <span className="status status-delivered">Activa</span>
                     )}
                   </td>
-                  <td>
-                    <div className="inline-actions">
+                  <td data-label="Acciones">
+                    <div className="inline-actions" style={{ flexWrap: 'wrap', gap: '0.3rem' }}>
+                      {isDriverRole && (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: '#276749', borderColor: '#9ae6b4' }}
+                            onClick={() => handleResetRisk(user)}
+                            title="Restablecer semáforo a Verde y perdonar sanciones técnicas"
+                          >
+                            <RefreshCw size={13} aria-hidden="true" />
+                            Perdonar / Verde
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm btn-danger"
+                            onClick={() => handleFraudBlock(user)}
+                            title="Bloqueo permanente por fraude o carrera por fuera"
+                          >
+                            <ShieldAlert size={13} aria-hidden="true" />
+                            Bloqueo Fraude
+                          </button>
+                        </>
+                      )}
                       {banned ? (
                         <button type="button" className="btn btn-ghost btn-sm" onClick={() => unban(user)}>
                           <ShieldCheck size={14} aria-hidden="true" />
                           Levantar
                         </button>
                       ) : (
-                        <>
-                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => ban(user, false)}>
-                            <ShieldOff size={14} aria-hidden="true" />
-                            Temporal
-                          </button>
-                          <button type="button" className="btn btn-ghost btn-sm btn-danger" onClick={() => ban(user, true)}>
-                            Permanente
-                          </button>
-                        </>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => ban(user, false)}>
+                          <ShieldOff size={14} aria-hidden="true" />
+                          Temp
+                        </button>
                       )}
                     </div>
                   </td>
@@ -198,6 +301,89 @@ export default function AdminCrm() {
             })}
           </tbody>
         </table>
+      </Section>
+
+      {/* Sección de Alertas Rojas y Reportes de Clientes (Anti-Desintermediación) */}
+      <Section
+        title="Alertas Rojas y Reportes de Clientes (Anti-Fraude)"
+        subtitle="Reportes generados por usuarios: intentos de cobrar por fuera, desintermediación y conducta"
+      >
+        <ul className="admin-list">
+          {reports.map((report) => (
+            <li key={report.id} className="is-stacked">
+              <div className="admin-row-main">
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+                    <strong>Pedido {report.orderCode || 'N/A'}</strong>
+                    {report.isFraud ? (
+                      <span
+                        style={{
+                          background: '#e53e3e',
+                          color: '#ffffff',
+                          fontSize: '0.75rem',
+                          fontWeight: '700',
+                          padding: '0.15rem 0.5rem',
+                          borderRadius: '1rem',
+                        }}
+                      >
+                        🚨 CARRERA POR FUERA (FRAUDE)
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          background: '#dd6b20',
+                          color: '#ffffff',
+                          fontSize: '0.75rem',
+                          fontWeight: '700',
+                          padding: '0.15rem 0.5rem',
+                          borderRadius: '1rem',
+                        }}
+                      >
+                        REPORTE DE CLIENTE
+                      </span>
+                    )}
+                    <span className="muted small">{formatDate(report.createdAt)}</span>
+                  </div>
+                  <div style={{ fontSize: '0.9rem', color: '#2d3748', marginTop: '0.25rem' }}>
+                    <b>Motivo:</b> {report.reason}
+                  </div>
+                  {report.details && (
+                    <div style={{ fontSize: '0.85rem', color: '#4a5568', marginTop: '0.2rem' }}>
+                      <b>Detalles:</b> <i>"{report.details}"</i>
+                    </div>
+                  )}
+                  <div className="muted small" style={{ marginTop: '0.35rem' }}>
+                    Cliente: <b>{report.customerName || 'Cliente'}</b> · Conductor reportado:{' '}
+                    <b>{report.driverName || report.driverEmail || 'Desconocido'}</b>
+                  </div>
+                </div>
+
+                {report.driverId && (
+                  <div className="inline-actions">
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{ color: '#276749', borderColor: '#9ae6b4' }}
+                      onClick={() => handleResetRisk({ id: report.driverId, email: report.driverEmail })}
+                    >
+                      <CheckCircle size={13} aria-hidden="true" />
+                      Perdonar
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm btn-danger"
+                      onClick={() => handleFraudBlock({ id: report.driverId, email: report.driverEmail })}
+                    >
+                      <ShieldAlert size={13} aria-hidden="true" />
+                      Bloquear Fraude
+                    </button>
+                  </div>
+                )}
+              </div>
+            </li>
+          ))}
+          {!reports.length && <li className="muted">No se han registrado reportes de clientes ni fraudes.</li>}
+        </ul>
       </Section>
 
       <Section title="CRM" subtitle="Registro de pedidos, cancelaciones, liberaciones, SOS y liquidaciones">

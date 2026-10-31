@@ -1,9 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Bike, Car, MessageCircle, Navigation, Phone, Receipt, ShieldCheck, Sparkles } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bike,
+  Car,
+  Lock,
+  MessageCircle,
+  Navigation,
+  Phone,
+  Receipt,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react';
 import ClientHeader from '../components/ClientHeader.jsx';
 import ProofPhoto from '../components/ProofPhoto.jsx';
-import { Alert, Field, Spinner, StatusPill } from '../components/ui.jsx';
+import { Alert, Field, Modal, Spinner, StatusPill } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { useConfig } from '../lib/config.jsx';
 import { formatBs, formatDate, formatUsd, getOrderStatusLabel, statusLabel } from '../lib/format.js';
@@ -21,6 +34,12 @@ export default function OrderPage() {
   const [canUploadProof, setCanUploadProof] = useState(false);
   const [proofBusy, setProofBusy] = useState(false);
   const [proofError, setProofError] = useState('');
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('');
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportMessage, setReportMessage] = useState('');
+  const [reportError, setReportError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -64,6 +83,31 @@ export default function OrderPage() {
   useEffect(() => {
     loadProofs();
   }, [loadProofs]);
+
+  const submitReport = async () => {
+    if (!reportReason) return;
+    setReportSubmitting(true);
+    setReportError('');
+    setReportMessage('');
+    try {
+      const res = await api.reportOrder(order.code, {
+        reason: reportReason,
+        details: reportDetails,
+        isFraud: reportReason.includes('por fuera'),
+      });
+      setReportMessage(res.message || 'Reporte enviado con éxito.');
+      setTimeout(() => {
+        setReportOpen(false);
+        setReportReason('');
+        setReportDetails('');
+        setReportMessage('');
+      }, 2500);
+    } catch (err) {
+      setReportError(err.message);
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
 
   const sendProof = async (file) => {
     if (!file) return;
@@ -176,6 +220,70 @@ export default function OrderPage() {
         {status === 'ready' && order && (
           <div className="order-grid">
             <section className="panel">
+              {/* Notificación cuando el motorizado está llegando */}
+              {order.status === 'accepted' && order.isCourierNearby && (
+                <div
+                  style={{
+                    background: '#ebf8ff',
+                    border: '1.5px solid #3182ce',
+                    color: '#2b6cb0',
+                    padding: '0.85rem 1rem',
+                    borderRadius: '0.65rem',
+                    marginBottom: '1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.6rem',
+                    fontWeight: '600',
+                  }}
+                >
+                  <span style={{ fontSize: '1.35rem' }}>🛵</span>
+                  <span>El motorizado está llegando. Ten tu PIN listo.</span>
+                </div>
+              )}
+
+              {/* Recuadro destacado de seguridad con el PIN */}
+              {order.deliveryCode && !['delivered', 'cancelled'].includes(order.status) && (
+                <div
+                  style={{
+                    background: '#fefcbf',
+                    border: '2px dashed #b7791f',
+                    color: '#744210',
+                    padding: '1.1rem',
+                    borderRadius: '0.75rem',
+                    marginBottom: '1.25rem',
+                    textAlign: 'center',
+                    boxShadow: '0 2px 8px rgba(183, 121, 31, 0.12)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.4rem',
+                      fontSize: '0.95rem',
+                      fontWeight: '700',
+                    }}
+                  >
+                    <Lock size={16} /> Tu código de seguridad es:
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '2.5rem',
+                      fontWeight: '900',
+                      letterSpacing: '0.35rem',
+                      color: '#975a16',
+                      margin: '0.25rem 0',
+                    }}
+                  >
+                    {order.deliveryCode}
+                  </div>
+                  <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.88rem', fontWeight: '600', color: '#744210' }}>
+                    Dicta este código al motorizado al subir. <u>NUNCA lo compartas por WhatsApp</u>.
+                  </p>
+                </div>
+              )}
+
               <header className="panel-head">
                 <div>
                   <p className="eyebrow">
@@ -384,7 +492,7 @@ export default function OrderPage() {
                 </small>
               </div>
 
-              <div className="page-actions">
+              <div className="page-actions" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
                 {/* Ocultar botón de reenviar por WhatsApp a tienda en servicios de transporte */}
                 {!isTransport && (
                   <a
@@ -403,6 +511,15 @@ export default function OrderPage() {
                     Llamar al conductor
                   </a>
                 )}
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ color: '#c53030', borderColor: '#feb2b2', marginLeft: 'auto' }}
+                  onClick={() => setReportOpen(true)}
+                >
+                  <AlertTriangle size={15} aria-hidden="true" />
+                  Reportar Problema
+                </button>
               </div>
 
               {order.courier && (
@@ -478,6 +595,92 @@ export default function OrderPage() {
             )}
           </div>
         )}
+
+        {/* Modal de Reporte de Cliente (Anti-Desintermediación y Control de Riesgo) */}
+        <Modal
+          open={reportOpen}
+          title="Reportar Problema con el Servicio"
+          onClose={() => {
+            setReportOpen(false);
+            setReportMessage('');
+            setReportError('');
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            <p className="muted small" style={{ margin: 0 }}>
+              Tu seguridad es lo primero. Si el conductor te pide cancelar o acordar la carrera por fuera, repórtalo para activar protección inmediata.
+            </p>
+
+            <Alert>{reportError}</Alert>
+            <Alert tone="ok">{reportMessage}</Alert>
+
+            <Field label="Motivo del reporte">
+              <select
+                value={reportReason}
+                onChange={(e) => setReportReason(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.6rem',
+                  borderRadius: '0.4rem',
+                  border: '1px solid #cbd5e0',
+                  fontSize: '0.9rem',
+                }}
+              >
+                <option value="">Selecciona un motivo...</option>
+                <option value="El conductor me pidió hacer la carrera por fuera">
+                  🚨 El conductor me pidió hacer la carrera por fuera (Fraude)
+                </option>
+                <option value="El conductor nunca llegó / no responde">
+                  El conductor nunca llegó / no responde
+                </option>
+                <option value="Trato inadecuado o conducción peligrosa">
+                  Trato inadecuado o conducción peligrosa
+                </option>
+                <option value="Cobro indebido / tarifa diferente a la app">
+                  Cobro indebido o cobro extra no autorizado
+                </option>
+                <option value="Otro motivo">Otro problema</option>
+              </select>
+            </Field>
+
+            <Field label="Detalles adicionales (opcional)">
+              <textarea
+                value={reportDetails}
+                onChange={(e) => setReportDetails(e.target.value)}
+                rows={3}
+                placeholder="Describe brevemente lo ocurrido..."
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  borderRadius: '0.4rem',
+                  border: '1px solid #cbd5e0',
+                  fontSize: '0.9rem',
+                }}
+              />
+            </Field>
+
+            <div className="page-actions" style={{ marginTop: '0.5rem', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setReportOpen(false)}
+                disabled={reportSubmitting}
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ background: '#e53e3e', borderColor: '#c53030' }}
+                onClick={submitReport}
+                disabled={!reportReason || reportSubmitting}
+              >
+                {reportSubmitting ? <Spinner /> : <ShieldAlert size={15} aria-hidden="true" />}
+                Enviar Reporte
+              </button>
+            </div>
+          </div>
+        </Modal>
       </main>
     </div>
   );

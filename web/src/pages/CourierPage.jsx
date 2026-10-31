@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  AlertTriangle,
   BellRing,
   Bike,
   Car,
   Check,
   CloudOff,
+  Lock,
   MapPin,
   MessageCircle,
   Navigation,
   Phone,
   RefreshCw,
   Route,
+  ShieldAlert,
   ShieldCheck,
   Siren,
   Wallet,
@@ -48,8 +51,14 @@ export default function CourierPage() {
   const [checklist, setChecklist] = useState({});
   const [pins, setPins] = useState({});
   const [codes, setCodes] = useState({});
+  const [startPins, setStartPins] = useState({});
+  const [pinToast, setPinToast] = useState('');
   const [payoutAmount, setPayoutAmount] = useState('');
   const [loading, setLoading] = useState(true);
+
+  const riskLevel = wallet?.courierRisk?.riskLevel || user?.riskLevel || 'green';
+  const cancellationCount = wallet?.courierRisk?.cancellationCount ?? user?.cancellationCount ?? 0;
+  const isSuspended = wallet?.courierRisk?.isSuspended || user?.isSuspended || riskLevel === 'red';
 
   const active = useMemo(
     () => mine.find((order) => ['accepted', 'on_route'].includes(order.status)) || null,
@@ -145,11 +154,24 @@ export default function CourierPage() {
 
   const startRoute = async (order) => {
     setError('');
+    setPinToast('');
     try {
       const isTransport = order.orderType === 'mototaxi' || order.orderType === 'taxi';
-      const items = isTransport ? [true, true, true] : CHECKLIST.map((point) => Boolean(checklist[order.id]?.[point.key]));
-      await api.courier.checklist(order.id, items);
-      setMessage(isTransport ? `¡Viaje ${order.code} iniciado! Conduce con precaución.` : `Checklist completo en ${order.code}. ¡Buen viaje!`);
+      if (isTransport) {
+        const pin = String(startPins[order.id] || '').trim();
+        if (!pin) {
+          setPinToast('Ingresa el PIN del cliente para iniciar');
+          setError('Ingresa el PIN del cliente para iniciar');
+          setTimeout(() => setPinToast(''), 3000);
+          return;
+        }
+        await api.courier.start(order.id, pin);
+        setMessage(`¡Viaje ${order.code} iniciado con éxito! Conduce con precaución.`);
+      } else {
+        const items = CHECKLIST.map((point) => Boolean(checklist[order.id]?.[point.key]));
+        await api.courier.checklist(order.id, items);
+        setMessage(`Checklist completo en ${order.code}. ¡Buen viaje!`);
+      }
       await load();
     } catch (requestError) {
       setError(requestError.message);
@@ -292,6 +314,58 @@ export default function CourierPage() {
       />
 
       <main className="admin-main">
+        {/* Banner de Semáforo de Riesgo: Alerta Amarilla */}
+        {riskLevel === 'yellow' && (
+          <div
+            style={{
+              background: '#fefcbf',
+              border: '1.5px solid #ecc94b',
+              color: '#744210',
+              padding: '0.85rem 1rem',
+              borderRadius: '0.65rem',
+              marginBottom: '1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.65rem',
+              fontWeight: '600',
+            }}
+          >
+            <span style={{ fontSize: '1.3rem' }}>⚠️</span>
+            <div>
+              <div>Alerta Amarilla: Has cancelado {cancellationCount || 2} viajes. Afecta tu reputación y prioridad.</div>
+              <div style={{ fontSize: '0.82rem', fontWeight: '400', marginTop: '0.15rem' }}>
+                Completa 5 viajes seguidos sin cancelar para volver a nivel Verde.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Banner de Semáforo de Riesgo: Alerta Roja */}
+        {(riskLevel === 'red' || isSuspended) && (
+          <div
+            style={{
+              background: '#fed7d7',
+              border: '1.5px solid #feb2b2',
+              color: '#9b2c2c',
+              padding: '0.85rem 1rem',
+              borderRadius: '0.65rem',
+              marginBottom: '1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.65rem',
+              fontWeight: '600',
+            }}
+          >
+            <span style={{ fontSize: '1.3rem' }}>🚨</span>
+            <div>
+              <div>Alerta Roja: Tu cuenta está suspendida por 72 horas por riesgo o reporte de fraude.</div>
+              <div style={{ fontSize: '0.82rem', fontWeight: '400', marginTop: '0.15rem' }}>
+                Tu radar ha sido bloqueado y tu billetera virtual congelada. Contacta al administrador para revisión.
+              </div>
+            </div>
+          </div>
+        )}
+
         <Alert>{error}</Alert>
         <Alert tone="ok">{message}</Alert>
         {loading && (
@@ -541,43 +615,76 @@ export default function CourierPage() {
                     {/* Flujo de control de viaje: Inicio de viaje vs Finalización con PIN */}
                     {active.status === 'accepted' && (
                       <Section
-                        title="Inicio de viaje"
-                        subtitle="Confirma que el pasajero esté a bordo antes de partir"
+                        title="Validación de PIN e inicio de viaje"
+                        subtitle="El cliente debe dictarte su código PIN de seguridad de 4 dígitos antes de partir"
                       >
-                        <div className="checklist">
-                          <Toggle
-                            checked={Boolean(checklist[active.id]?.passenger)}
-                            onChange={(value) =>
-                              setChecklist((prev) => ({
-                                ...prev,
-                                [active.id]: { ...prev[active.id], passenger: value },
-                              }))
-                            }
-                            label="Pasajero identificado y a bordo"
+                        <Field label="PIN de seguridad del pasajero (4 dígitos)">
+                          <input
+                            value={startPins[active.id] || ''}
+                            onChange={(event) => {
+                              const val = event.target.value;
+                              setStartPins((prev) => ({ ...prev, [active.id]: val }));
+                              if (pinToast) setPinToast('');
+                            }}
+                            inputMode="numeric"
+                            placeholder="Ej. 1234"
+                            maxLength={6}
+                            style={{
+                              fontSize: '1.3rem',
+                              letterSpacing: '0.25rem',
+                              fontWeight: '700',
+                              textAlign: 'center',
+                            }}
                           />
-                          <Toggle
-                            checked={Boolean(checklist[active.id]?.safety)}
-                            onChange={(value) =>
-                              setChecklist((prev) => ({
-                                ...prev,
-                                [active.id]: { ...prev[active.id], safety: value },
-                              }))
-                            }
-                            label={
-                              active.vehicleType === 'carro'
-                                ? 'Cinturón de seguridad colocado'
-                                : 'Casco de seguridad colocado'
-                            }
-                          />
-                        </div>
-                        <div className="page-actions">
+                        </Field>
+
+                        {pinToast && (
+                          <p style={{ color: '#e53e3e', fontSize: '0.85rem', fontWeight: '600', margin: '0.25rem 0' }}>
+                            ⚠️ {pinToast}
+                          </p>
+                        )}
+
+                        <div className="page-actions" style={{ marginTop: '0.75rem' }}>
                           <button
                             type="button"
-                            className="btn btn-primary btn-block"
+                            className="btn btn-block"
+                            style={{
+                              background: startPins[active.id]?.trim() ? '#38a169' : '#a0aec0',
+                              borderColor: startPins[active.id]?.trim() ? '#2f855a' : '#a0aec0',
+                              color: '#ffffff',
+                              fontWeight: '700',
+                              transition: 'all 0.25s ease',
+                              cursor: 'pointer',
+                            }}
                             onClick={() => startRoute(active)}
                           >
                             <Route size={15} aria-hidden="true" />
                             Iniciar viaje (Pasajero a bordo)
+                          </button>
+                        </div>
+
+                        <div style={{ marginTop: '1rem', borderTop: '1px solid #edf2f7', paddingTop: '0.75rem' }}>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: '#c53030', borderColor: '#feb2b2', width: '100%' }}
+                            onClick={async () => {
+                              const reason = window.prompt(
+                                '¿Motivo de la cancelación del viaje? (Atención: 2 cancelaciones del conductor activan Alerta Amarilla):',
+                                'Pasajero no se presentó',
+                              );
+                              if (!reason) return;
+                              try {
+                                await api.courier.cancel(active.id, reason);
+                                setMessage(`Viaje ${active.code} cancelado.`);
+                                await load();
+                              } catch (err) {
+                                setError(err.message);
+                              }
+                            }}
+                          >
+                            <AlertTriangle size={13} aria-hidden="true" />
+                            Cancelar viaje (Afecta reputación)
                           </button>
                         </div>
                       </Section>

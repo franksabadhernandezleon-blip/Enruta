@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import { httpError, requireAuth, requireRole } from '../auth.js';
+import { httpError, isDriverSuspended, requireAuth, requireRole } from '../auth.js';
 import { query } from '../db.js';
 import {
   acceptOrder,
+  cancelOrder,
   deliverOrder,
   loadOrder,
   raiseSos,
@@ -10,6 +11,7 @@ import {
   saveCourierLocation,
   serializeOrder,
   setChecklist,
+  triggerRedAlert,
 } from '../orders.js';
 
 const router = Router();
@@ -31,6 +33,22 @@ const courierView = (order) => ({
 // Radar: los viajes y entregas aparecen filtrados por el rol de transporte del usuario.
 router.get('/orders/ready', async (req, res, next) => {
   try {
+    // Si el conductor está suspendido o en Alerta Roja, el radar queda completamente bloqueado
+    const { rows: userRows } = await query(
+      'SELECT risk_level, cancellation_count, suspended_until, banned_permanent, banned_until FROM users WHERE id = $1',
+      [req.user.id],
+    );
+    const user = userRows[0] || req.user;
+    if (isDriverSuspended(user)) {
+      return res.json({
+        orders: [],
+        radarLocked: true,
+        riskLevel: user.risk_level,
+        suspendedUntil: user.suspended_until,
+        reason: 'Tu radar está bloqueado. Tu cuenta se encuentra suspendida por alerta de riesgo/fraude.',
+      });
+    }
+
     const role = String(req.user.role || '').toLowerCase();
 
     let whereClause = "WHERE courier_id IS NULL AND status IN ('pending','picking','ready')";
@@ -91,7 +109,62 @@ router.post('/orders/:id/accept', async (req, res, next) => {
 
 router.post('/orders/:id/checklist', async (req, res, next) => {
   try {
-    const order = await setChecklist({ orderId: req.params.id, items: req.body?.items });
+    const order = await setChecklist({ orderId: req.params.id, items: req.body?.items, pin: req.body?.pin });
+    res.json({ order: courierView(order) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/orders/:id/start', async (req, res, next) => {
+  try {
+    const order = await setChecklist({ orderId: req.params.id, pin: req.body?.pin });
+    res.json({ order: courierView(order) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Validación de PIN en tiempo real por el motorizado
+router.post('/orders/:id/validate-pin', async (req, res, next) => {
+  try {
+    const order = await loadOrder({ id: req.params.id });
+    if (!order) throw httpError(404, 'Ese pedido no existe.');
+
+    const pin = String(req.body?.pin || '').trim();
+    if (!pin) throw httpError(400, 'Ingresa el PIN del cliente para validar.');
+
+    if (pin !== String(order.delivery_code || '').trim()) {
+      const { rows } = await query(
+        'UPDATE orders SET pin_failed_attempts = pin_failed_attempts + 1 WHERE id = $1 RETURNING pin_failed_attempts',
+        [order.id],
+      );
+      const attempts = rows[0]?.pin_failed_attempts || 1;
+      if (attempts >= 3) {
+        await triggerRedAlert({
+          driverId: req.user.id,
+          reason: '3 intentos fallidos de validar PIN de seguridad',
+          orderCode: order.code,
+        });
+        throw httpError(403, 'Has intentado ingresar el PIN incorrecto 3 veces. Tu cuenta ha sido suspendida por 72 horas (Alerta Roja).');
+      }
+      throw httpError(400, `PIN incorrecto. Intento ${attempts} de 3.`);
+    }
+
+    res.json({ ok: true, valid: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/orders/:id/cancel', async (req, res, next) => {
+  try {
+    const order = await cancelOrder({
+      orderId: req.params.id,
+      reason: req.body?.reason || 'Cancelado por el conductor',
+      actor: 'courier',
+      courier: req.user,
+    });
     res.json({ order: courierView(order) });
   } catch (error) {
     next(error);
@@ -182,7 +255,7 @@ router.get('/pins', async (req, res, next) => {
 // Billetera virtual: acumula comisiones y permite pedir liquidación.
 router.get('/wallet', async (req, res, next) => {
   try {
-    const [entries, payouts, totals] = await Promise.all([
+    const [entries, payouts, totals, uRows] = await Promise.all([
       query('SELECT * FROM wallet_entries WHERE courier_id = $1 ORDER BY created_at DESC LIMIT 50', [req.user.id]),
       query('SELECT * FROM payout_requests WHERE courier_id = $1 ORDER BY created_at DESC LIMIT 20', [req.user.id]),
       query(
@@ -192,7 +265,12 @@ router.get('/wallet', async (req, res, next) => {
          FROM wallet_entries WHERE courier_id = $1`,
         [req.user.id],
       ),
+      query(
+        'SELECT risk_level, cancellation_count, suspended_until, consecutive_completed_trips, banned_permanent, banned_until FROM users WHERE id = $1',
+        [req.user.id],
+      ),
     ]);
+    const courierInfo = uRows.rows[0] || req.user;
 
     const requested = await query(
       "SELECT COALESCE(sum(amount_cents), 0)::int AS total FROM payout_requests WHERE courier_id = $1 AND status = 'requested'",
@@ -223,6 +301,13 @@ router.get('/wallet', async (req, res, next) => {
         createdAt: payout.created_at,
         paidAt: payout.paid_at,
       })),
+      courierRisk: {
+        riskLevel: courierInfo.risk_level || 'green',
+        cancellationCount: courierInfo.cancellation_count || 0,
+        suspendedUntil: courierInfo.suspended_until,
+        consecutiveCompletedTrips: courierInfo.consecutive_completed_trips || 0,
+        isSuspended: isDriverSuspended(courierInfo),
+      },
     });
   } catch (error) {
     next(error);
@@ -231,6 +316,15 @@ router.get('/wallet', async (req, res, next) => {
 
 router.post('/payouts', async (req, res, next) => {
   try {
+    const { rows: uRows } = await query(
+      'SELECT risk_level, suspended_until, banned_permanent, banned_until FROM users WHERE id = $1',
+      [req.user.id],
+    );
+    const user = uRows[0] || req.user;
+    if (isDriverSuspended(user) || user.risk_level === 'red') {
+      throw httpError(403, 'Tu billetera está congelada debido a una suspensión por alerta de riesgo/fraude.');
+    }
+
     const amountCents = Math.max(0, Math.round(Number(req.body?.amountCents) || 0));
     if (amountCents < 100) throw httpError(400, 'El monto mínimo de liquidación es 1,00 USD.');
 
