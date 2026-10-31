@@ -529,15 +529,17 @@ export const acceptOrder = async ({ orderId, courier }) => {
   );
 
   if (!rows[0]) throw httpError(409, 'Ese pedido ya no está disponible: otro motorizado lo tomó.');
-  await crm('accepted', `Pedido ${order.code} aceptado por ${order.courier_name}`, { orderCode: order.code });
-  await notifyStores(order, {
-    title: `Motorizado asignado en ${order.code}`,
-    body: `${order.courier_name} va en camino a tu tienda. Dicta el PIN de retiro cuando llegue.`,
+
+  const updatedOrder = await loadOrder({ id: orderId });
+  await crm('accepted', `Pedido ${updatedOrder.code} aceptado por ${updatedOrder.courier_name}`, { orderCode: updatedOrder.code });
+  await notifyStores(updatedOrder, {
+    title: `Motorizado asignado en ${updatedOrder.code}`,
+    body: `${updatedOrder.courier_name} va en camino a tu tienda. Dicta el PIN de retiro cuando llegue.`,
     url: '/mitienda',
-    tag: `courier-${order.id}`,
+    tag: `courier-${updatedOrder.id}`,
   }).catch(() => 0);
 
-  return order;
+  return updatedOrder;
 };
 
 const notifyStores = async (order, payload) => {
