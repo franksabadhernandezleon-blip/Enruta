@@ -425,6 +425,11 @@ router.get('/users', async (req, res, next) => {
         ordersCount: user.orders_count,
         deliveriesCount: user.deliveries_count,
         createdAt: user.created_at,
+        riskLevel: user.risk_level || 'green',
+        cancellationCount: user.cancellation_count || 0,
+        reportsCount: user.reports_count || 0,
+        suspendedUntil: user.suspended_until,
+        consecutiveCompletedTrips: user.consecutive_completed_trips || 0,
       })),
     });
   } catch (error) {
@@ -489,6 +494,90 @@ router.post('/users/:id/unban', async (req, res, next) => {
       'Baneo levantado',
     ]);
     res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Bloqueo manual por fraude (permanente)
+router.post('/users/:id/fraud-block', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `UPDATE users
+          SET banned_permanent = true,
+              risk_level = 'red',
+              suspended_until = now() + interval '100 years'
+        WHERE id = $1 RETURNING *`,
+      [req.params.id],
+    );
+    if (!rows[0]) throw httpError(404, 'Ese usuario no existe.');
+
+    await query('INSERT INTO crm_events (email, kind, note) VALUES ($1, $2, $3)', [
+      rows[0].email,
+      'fraud_block',
+      'Bloqueo manual permanente por fraude',
+    ]);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Restablecer a Verde / Perdonar (para fallos técnicos)
+router.post('/users/:id/reset-risk', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `UPDATE users
+          SET risk_level = 'green',
+              cancellation_count = 0,
+              reports_count = 0,
+              consecutive_completed_trips = 0,
+              suspended_until = NULL,
+              banned_permanent = false,
+              banned_until = NULL
+        WHERE id = $1 RETURNING *`,
+      [req.params.id],
+    );
+    if (!rows[0]) throw httpError(404, 'Ese usuario no existe.');
+
+    await query('INSERT INTO crm_events (email, kind, note) VALUES ($1, $2, $3)', [
+      rows[0].email,
+      'risk_reset',
+      'Semáforo restablecido a Verde y sanciones perdonadas',
+    ]);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Lista de alertas rojas y reportes generados por clientes
+router.get('/driver-reports', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT dr.*, u.email AS driver_email, u.phone AS driver_phone, u.risk_level AS driver_risk_level
+         FROM driver_reports dr
+         LEFT JOIN users u ON u.id = dr.driver_id
+        ORDER BY dr.created_at DESC LIMIT 60`,
+    );
+    res.json({
+      reports: rows.map((r) => ({
+        id: r.id,
+        orderId: r.order_id,
+        orderCode: r.order_code,
+        customerId: r.customer_id,
+        customerName: r.customer_name,
+        driverId: r.driver_id,
+        driverName: r.driver_name,
+        driverEmail: r.driver_email,
+        driverPhone: r.driver_phone,
+        driverRiskLevel: r.driver_risk_level || 'green',
+        reason: r.reason,
+        details: r.details,
+        isFraud: r.is_fraud,
+        createdAt: r.created_at,
+      })),
+    });
   } catch (error) {
     next(error);
   }

@@ -367,22 +367,69 @@ export const createMototaxiOrder = async ({
   return loadOrder({ id: order.id });
 };
 
+export const triggerRedAlert = async ({ driverId, reason, isPermanent = false, orderCode = null }) => {
+  if (!driverId) return null;
+  const settings = await getSettings();
+  const suspendedUntil = new Date(Date.now() + 72 * 3600 * 1000); // Suspensión automática por 72 horas
+
+  const { rows } = await query(
+    `UPDATE users
+        SET risk_level = 'red',
+            suspended_until = $2,
+            banned_permanent = CASE WHEN $3 = true THEN true ELSE banned_permanent END
+      WHERE id = $1 RETURNING *`,
+    [driverId, suspendedUntil, isPermanent],
+  );
+
+  const driver = rows[0];
+  if (!driver) return null;
+
+  await crm('risk_red', `🚨 ALERTA ROJA: ${driver.name || driver.email} suspendido 72h por: ${reason}`, {
+    email: driver.email,
+    orderCode,
+  });
+
+  const adminEmails = (settings.admin_emails || []).map((email) => String(email).toLowerCase());
+  await notifyAdmins(adminEmails, {
+    title: '🚨 ALERTA ROJA en Enruta',
+    body: `${driver.name || driver.email} suspendido 72h. Motivo: ${reason}`,
+    url: '/tuteteno',
+    tag: `risk-red-${driver.id}`,
+    requireInteraction: true,
+  }).catch(() => 0);
+
+  return driver;
+};
+
 export const loadOrder = async ({ id, code } = {}) => {
   const filter = id ? 'id = $1' : 'code = $1';
   const { rows } = await query(`SELECT * FROM orders WHERE ${filter}`, [id || code]);
   const order = rows[0];
   if (!order) return null;
 
-  const [items, stops] = await Promise.all([
+  const [items, stops, loc] = await Promise.all([
     query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY store_name, name', [order.id]),
     query('SELECT * FROM order_stops WHERE order_id = $1 ORDER BY seq', [order.id]),
+    order.courier_id
+      ? query('SELECT lat, lng, updated_at FROM courier_locations WHERE courier_id = $1', [order.courier_id])
+      : Promise.resolve({ rows: [] }),
   ]);
 
-  return { ...order, items: items.rows, stops: stops.rows };
+  return { ...order, items: items.rows, stops: stops.rows, courier_location: loc.rows[0] || null };
 };
 
 export const serializeOrder = (order, { view = 'customer' } = {}) => {
   const full = view === 'admin' || view === 'courier';
+  const targetLat = order.origin_lat || order.lat;
+  const targetLng = order.origin_lng || order.lng;
+  const hasCourierLoc = Boolean(order.courier_location?.lat && order.courier_location?.lng);
+  const isCourierNearby = hasCourierLoc && targetLat && targetLng
+    ? haversineKm(
+        { lat: Number(order.courier_location.lat), lng: Number(order.courier_location.lng) },
+        { lat: Number(targetLat), lng: Number(targetLng) },
+      ) <= 0.40
+    : false;
+
   return {
     id: order.id,
     code: order.code,
@@ -400,6 +447,9 @@ export const serializeOrder = (order, { view = 'customer' } = {}) => {
     acceptedAt: order.accepted_at,
     deliveredAt: order.delivered_at,
     cancelledAt: order.cancelled_at,
+    cancelledBy: order.cancelled_by,
+    cancelReason: order.cancel_reason,
+    pinFailedAttempts: order.pin_failed_attempts || 0,
     customerName: order.customer_name,
     customerPhone: full ? order.customer_phone : undefined,
     address: order.address,
@@ -422,6 +472,14 @@ export const serializeOrder = (order, { view = 'customer' } = {}) => {
     paymentRef: order.payment_ref,
     notes: order.notes,
     courier: order.courier_id ? { name: order.courier_name, phone: full || true ? order.courier_phone : null } : null,
+    courierLocation: hasCourierLoc
+      ? {
+          lat: Number(order.courier_location.lat),
+          lng: Number(order.courier_location.lng),
+          updatedAt: order.courier_location.updated_at,
+        }
+      : null,
+    isCourierNearby,
     courierCommissionCents: full ? order.courier_commission_cents : undefined,
     platformCommissionCents: view === 'admin' ? order.platform_commission_cents : undefined,
     checklist: order.checklist,
@@ -505,12 +563,26 @@ export const acceptOrder = async ({ orderId, courier }) => {
   const order = await loadOrder({ id: orderId });
   if (!order) throw httpError(404, 'Ese pedido no existe.');
 
+  // Verificar suspensión, baneo o Alerta Roja en el conductor
+  const { rows: courierRows } = await query(
+    'SELECT wallet_balance, risk_level, suspended_until, banned_permanent, banned_until FROM users WHERE id = $1',
+    [courier.id],
+  );
+  const courierUser = courierRows[0];
+  if (
+    courierUser?.banned_permanent ||
+    (courierUser?.banned_until && new Date(courierUser.banned_until) > new Date()) ||
+    (courierUser?.suspended_until && new Date(courierUser.suspended_until) > new Date()) ||
+    courierUser?.risk_level === 'red'
+  ) {
+    throw httpError(403, 'Tu radar está bloqueado. Tu cuenta tiene una suspensión activa por alerta de riesgo/fraude.');
+  }
+
   // Si es un servicio de transporte (mototaxi/taxi), verificar si el conductor supera el límite de deuda
   if (order.order_type === 'mototaxi' || order.order_type === 'taxi') {
     const settings = await getSettings();
     const maxDebt = Number(settings.max_debt_usd || 10.00);
-    const { rows: courierRows } = await query('SELECT wallet_balance FROM users WHERE id = $1', [courier.id]);
-    const balance = Number(courierRows[0]?.wallet_balance || 0);
+    const balance = Number(courierUser?.wallet_balance || 0);
     // Un saldo negativo por debajo de -maxDebt indica exceso de deuda acumulada por comisiones
     if (balance <= -maxDebt) {
       throw httpError(
@@ -637,6 +709,34 @@ export const saveCourierLocation = async ({ courier, lat, lng, orderId = null })
      RETURNING updated_at`,
     [courier.id, latitude, longitude, orderId],
   );
+
+  // Comprobar cercanía al cliente/origen para notificación push de proximidad
+  if (orderId) {
+    try {
+      const order = await loadOrder({ id: orderId });
+      if (order && order.status === 'accepted') {
+        const targetLat = order.origin_lat || order.lat;
+        const targetLng = order.origin_lng || order.lng;
+        if (targetLat && targetLng) {
+          const distance = haversineKm({ lat: latitude, lng: longitude }, { lat: targetLat, lng: targetLng });
+          if (distance <= 0.40 && order.customer_id) {
+            const { rows: custRows } = await query('SELECT email FROM users WHERE id = $1', [order.customer_id]);
+            if (custRows[0]?.email) {
+              await notifyEmail(custRows[0].email, {
+                title: '¡Tu motorizado está llegando! 🛵',
+                body: 'El motorizado está llegando. Ten tu PIN listo.',
+                url: `/pedido/${order.code}`,
+                tag: `nearby-${order.id}`,
+              }).catch(() => 0);
+            }
+          }
+        }
+      }
+    } catch {
+      // Evitar bloquear el registro de ubicación por fallo de push
+    }
+  }
+
   return { ok: true, updatedAt: rows[0].updated_at };
 };
 
@@ -649,7 +749,7 @@ export const loadCourierLocation = async (courierId) => {
   return { lat: Number(rows[0].lat), lng: Number(rows[0].lng), updatedAt: rows[0].updated_at };
 };
 
-export const setChecklist = async ({ orderId, items }) => {
+export const setChecklist = async ({ orderId, items, pin = null }) => {
   const order = await loadOrder({ id: orderId });
   if (!order) throw httpError(404, 'Ese pedido no existe.');
 
@@ -657,11 +757,33 @@ export const setChecklist = async ({ orderId, items }) => {
   const isTransport = order.order_type === 'mototaxi' || order.order_type === 'taxi';
   let checklistData;
 
-  if (isTransport) {
-    // En transporte de personas se registra el inicio de viaje con pasajero a bordo
+  if (isTransport || pin) {
+    const cleanPin = String(pin || '').trim();
+    if (!cleanPin) {
+      throw httpError(400, 'Ingresa el PIN del cliente para iniciar.');
+    }
+    if (cleanPin !== String(order.delivery_code || '').trim()) {
+      const { rows: attRows } = await query(
+        'UPDATE orders SET pin_failed_attempts = pin_failed_attempts + 1 WHERE id = $1 RETURNING pin_failed_attempts',
+        [order.id],
+      );
+      const attempts = attRows[0]?.pin_failed_attempts || 1;
+      const courierId = order.courier_id;
+      if (attempts >= 3 && courierId) {
+        await triggerRedAlert({
+          driverId: courierId,
+          reason: '3 intentos fallidos de iniciar viaje sin PIN válido',
+          orderCode: order.code,
+        });
+        throw httpError(403, 'Has intentado ingresar el PIN incorrecto 3 veces. Tu cuenta ha sido suspendida por 72 horas (Alerta Roja).');
+      }
+      throw httpError(400, `El PIN del cliente es incorrecto. Intento ${attempts} de 3.`);
+    }
+
     checklistData = {
       passenger_onboard: true,
       safety_verified: true,
+      pin_verified: true,
       at: new Date().toISOString(),
     };
   } else {
@@ -678,23 +800,76 @@ export const setChecklist = async ({ orderId, items }) => {
     [orderId, JSON.stringify(checklistData)],
   );
   if (!rows[0]) throw httpError(404, 'Ese pedido no existe.');
+
+  // Push al motorizado recordando seguridad al subir el cliente
+  if (order.courier_id) {
+    const { rows: courierRows } = await query('SELECT email FROM users WHERE id = $1', [order.courier_id]);
+    if (courierRows[0]?.email) {
+      await notifyEmail(courierRows[0].email, {
+        title: 'Pasajero a bordo 🛵',
+        body: 'El viaje ha iniciado. Conduce con precaución hacia el destino.',
+        url: '/repartidor',
+        tag: `trip-started-${order.id}`,
+      }).catch(() => 0);
+    }
+  }
+
   return loadOrder({ id: orderId });
 };
 
 export const deliverOrder = async ({ orderId, code, courier }) => {
   const order = await loadOrder({ id: orderId });
   if (!order) throw httpError(404, 'Ese pedido no existe.');
-  if (String(code || '').trim() !== order.delivery_code) {
-    throw httpError(400, 'El código de entrega no coincide con el recibo del cliente.');
-  }
   if (order.delivered_at) throw httpError(409, 'Ese pedido ya fue entregado.');
+
+  const courierId = order.courier_id || courier?.id;
+  const cleanCode = String(code || '').trim();
+
+  if (!cleanCode || cleanCode !== String(order.delivery_code || '').trim()) {
+    const { rows: attRows } = await query(
+      'UPDATE orders SET pin_failed_attempts = pin_failed_attempts + 1 WHERE id = $1 RETURNING pin_failed_attempts',
+      [order.id],
+    );
+    const attempts = attRows[0]?.pin_failed_attempts || 1;
+    if (attempts >= 3 && courierId) {
+      await triggerRedAlert({
+        driverId: courierId,
+        reason: '3 intentos fallidos de cerrar viaje sin PIN de seguridad válido',
+        orderCode: order.code,
+      });
+      throw httpError(403, 'Has intentado ingresar el PIN incorrecto 3 veces. Tu cuenta ha sido suspendida por 72 horas (Alerta Roja).');
+    }
+    throw httpError(400, `El código de entrega no coincide con el recibo del cliente. Intento ${attempts} de 3.`);
+  }
 
   await query(
     `UPDATE orders SET status = 'delivered', delivered_at = now(), updated_at = now() WHERE id = $1`,
     [order.id],
   );
 
-  const courierId = order.courier_id || courier?.id;
+  // Auto-limpieza de Alerta Amarilla: si completa 5 viajes seguidos sin cancelar, vuelve a 'green'
+  if (courierId) {
+    const { rows: uRows } = await query(
+      `UPDATE users
+          SET consecutive_completed_trips = consecutive_completed_trips + 1
+        WHERE id = $1
+        RETURNING risk_level, cancellation_count, consecutive_completed_trips, email`,
+      [courierId],
+    );
+    const updatedUser = uRows[0];
+    if (updatedUser && updatedUser.risk_level === 'yellow' && updatedUser.consecutive_completed_trips >= 5) {
+      await query(
+        `UPDATE users
+            SET risk_level = 'green', cancellation_count = 0, consecutive_completed_trips = 0
+          WHERE id = $1`,
+        [courierId],
+      );
+      await crm('risk_clean', `Auto-limpieza de Alerta Amarilla: ${updatedUser.email} completó 5 viajes seguidos sin cancelar. Vuelve a Verde.`, {
+        email: updatedUser.email,
+        orderCode: order.code,
+      });
+    }
+  }
 
   // Liquidación y comisiones según tipo de servicio (Transporte vs Delivery de tiendas)
   if (order.order_type === 'mototaxi' || order.order_type === 'taxi') {
@@ -724,7 +899,7 @@ export const deliverOrder = async ({ orderId, code, courier }) => {
   return loadOrder({ id: order.id });
 };
 
-export const cancelOrder = async ({ orderId, reason = '', actor = 'admin' }) => {
+export const cancelOrder = async ({ orderId, reason = '', actor = 'admin', courier = null }) => {
   const order = await loadOrder({ id: orderId });
   if (!order) throw httpError(404, 'Ese pedido no existe.');
   if (order.status === 'delivered') throw httpError(409, 'Un pedido entregado no se puede cancelar.');
@@ -739,14 +914,38 @@ export const cancelOrder = async ({ orderId, reason = '', actor = 'admin' }) => 
 
   await query(
     `UPDATE orders SET status = 'cancelled', cancelled_at = now(), updated_at = now(),
+                       cancelled_by = $2, cancel_reason = $3,
                        courier_commission_cents = 0, platform_commission_cents = 0
       WHERE id = $1`,
-    [order.id],
+    [order.id, actor, reason],
   );
   await query("DELETE FROM wallet_entries WHERE order_code = $1 AND kind = 'earning'", [order.code]);
   await crm('cancel', `Pedido ${order.code} cancelado (${actor}): ${reason || 'sin motivo'}`, {
     orderCode: order.code,
   });
+
+  // Si cancela el CONDUCTOR: incrementa cancelaciones y activa Alerta Amarilla al llegar estrictamente a 2
+  if (actor === 'courier' || actor === 'motorizado' || actor === 'conductor') {
+    const courierId = order.courier_id || courier?.id;
+    if (courierId) {
+      const { rows } = await query(
+        `UPDATE users
+            SET cancellation_count = cancellation_count + 1,
+                consecutive_completed_trips = 0,
+                risk_level = CASE WHEN (cancellation_count + 1) >= 2 AND risk_level = 'green' THEN 'yellow' ELSE risk_level END
+          WHERE id = $1
+          RETURNING cancellation_count, risk_level, email`,
+        [courierId],
+      );
+      const updated = rows[0];
+      if (updated && updated.risk_level === 'yellow' && updated.cancellation_count === 2) {
+        await crm('risk_yellow', `⚠️ ALERTA AMARILLA: ${updated.email} acumula 2 cancelaciones.`, {
+          email: updated.email,
+          orderCode: order.code,
+        });
+      }
+    }
+  }
 
   return loadOrder({ id: order.id });
 };

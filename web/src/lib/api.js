@@ -120,6 +120,8 @@ export const api = {
   myOrders: () => request('/orders/mine'),
   orderProofs: (code) => request(`/orders/${code}/proofs`),
   addOrderProof,
+  reportOrder: (code, payload) => request(`/orders/${code}/report`, { method: 'POST', body: payload }),
+  cancelOrder: (code, reason) => request(`/orders/${code}/cancel`, { method: 'POST', body: { reason } }),
 
   addresses: {
     list: () => request('/addresses'),
@@ -155,8 +157,14 @@ export const api = {
     mine: () => request('/courier/orders/mine'),
     order: (id) => request(`/courier/orders/${id}`),
     accept: (id) => request(`/courier/orders/${id}/accept`, { method: 'POST' }),
-    checklist: (id, items) =>
-      request(`/courier/orders/${id}/checklist`, { method: 'POST', body: { items } }),
+    checklist: (id, items, pin) =>
+      request(`/courier/orders/${id}/checklist`, { method: 'POST', body: { items, pin } }),
+    start: (id, pin) =>
+      request(`/courier/orders/${id}/start`, { method: 'POST', body: { pin } }),
+    validatePin: (id, pin) =>
+      request(`/courier/orders/${id}/validate-pin`, { method: 'POST', body: { pin } }),
+    cancel: (id, reason) =>
+      request(`/courier/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
     releaseStop: (orderId, stopId, pin, isOffline) =>
       request(`/courier/orders/${orderId}/stops/${stopId}/release`, {
         method: 'POST',
@@ -201,5 +209,8 @@ export const api = {
     payouts: () => request('/admin/payouts'),
     payPayout: (id) => request(`/admin/payouts/${id}/pay`, { method: 'POST' }),
     testPush: () => request('/admin/push/test', { method: 'POST' }),
+    driverReports: () => request('/admin/driver-reports'),
+    fraudBlock: (id) => request(`/admin/users/${id}/fraud-block`, { method: 'POST' }),
+    resetRisk: (id) => request(`/admin/users/${id}/reset-risk`, { method: 'POST' }),
   },
 };

@@ -3,7 +3,16 @@ import { Router } from 'express';
 import { googleClientId, vapidPublicKey } from '../config.js';
 import { bannedNow, httpError, isAdmin, optionalAuth, requireAuth } from '../auth.js';
 import { query } from '../db.js';
-import { createMototaxiOrder, createOrder, loadOrder, quoteCart, serializeOrder } from '../orders.js';
+import {
+  cancelOrder,
+  createMototaxiOrder,
+  createOrder,
+  loadOrder,
+  quoteCart,
+  serializeOrder,
+  triggerRedAlert,
+} from '../orders.js';
+import { notifyAdmins } from '../push.js';
 import {
   addProof,
   canSeeProof,
@@ -333,6 +342,100 @@ router.get('/orders/:code', async (req, res, next) => {
     const order = await loadOrder({ code: req.params.code });
     if (!order) throw httpError(404, 'No encontramos ese pedido.');
     res.json({ order: serializeOrder(order, { view: 'customer' }) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Cancelación de pedido iniciada por el cliente (no penaliza al conductor)
+router.post('/orders/:code/cancel', optionalAuth, async (req, res, next) => {
+  try {
+    const order = await loadOrder({ code: req.params.code });
+    if (!order) throw httpError(404, 'No encontramos ese pedido.');
+    if (order.status === 'delivered') throw httpError(409, 'Un pedido entregado no se puede cancelar.');
+
+    const reason = String(req.body?.reason || 'Cancelado por el cliente').trim();
+    const cancelled = await cancelOrder({ orderId: order.id, reason, actor: 'customer' });
+    res.json({ order: serializeOrder(cancelled, { view: 'customer' }) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reporte del cliente: anti-desintermediación y prevención de fraude
+router.post('/orders/:code/report', optionalAuth, async (req, res, next) => {
+  try {
+    const order = await loadOrder({ code: req.params.code });
+    if (!order) throw httpError(404, 'No encontramos ese pedido.');
+
+    const reason = String(req.body?.reason || '').trim();
+    const details = String(req.body?.details || '').trim();
+    if (!reason) throw httpError(400, 'Selecciona un motivo para tu reporte.');
+
+    const isFraud =
+      reason.toLowerCase().includes('por fuera') ||
+      reason.toLowerCase().includes('desintermediaci') ||
+      Boolean(req.body?.isFraud);
+
+    const driverId = order.courier_id;
+    const driverName = order.courier_name || 'Conductor';
+    const customerId = req.user?.id || order.customer_id || null;
+    const customerName = req.user?.name || order.customer_name || 'Cliente';
+
+    const { rows: inserted } = await query(
+      `INSERT INTO driver_reports (order_id, order_code, customer_id, customer_name, driver_id, driver_name, reason, details, is_fraud)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [order.id, order.code, customerId, customerName, driverId, driverName, reason, details, isFraud],
+    );
+
+    await query('INSERT INTO crm_events (email, order_code, kind, note) VALUES ($1, $2, $3, $4)', [
+      req.user?.email || null,
+      order.code,
+      isFraud ? 'fraud_report' : 'customer_report',
+      `Reporte de cliente: ${reason} (Conductor: ${driverName})`,
+    ]);
+
+    if (driverId) {
+      if (isFraud) {
+        // Alerta Roja automática por carrera por fuera (anti-desintermediación)
+        await triggerRedAlert({
+          driverId,
+          reason: `Reporte de fraude/desintermediación: ${reason}`,
+          orderCode: order.code,
+        });
+      } else {
+        // Alerta Roja al acumular 2 reportes de clientes
+        const { rows: updateRes } = await query(
+          `UPDATE users SET reports_count = reports_count + 1 WHERE id = $1 RETURNING reports_count`,
+          [driverId],
+        );
+        const count = updateRes[0]?.reports_count || 1;
+        if (count >= 2) {
+          await triggerRedAlert({
+            driverId,
+            reason: `Acumuló ${count} reportes de clientes`,
+            orderCode: order.code,
+          });
+        }
+      }
+    }
+
+    // Notificar al admin en /tuteteno
+    const settings = await getSettings();
+    const adminEmails = (settings.admin_emails || []).map((e) => String(e).toLowerCase());
+    await notifyAdmins(adminEmails, {
+      title: isFraud ? '🚨 ALERTA ROJA: Carrera por fuera reportada' : '⚠️ Reporte de cliente',
+      body: `Pedido ${order.code} · ${reason} · Conductor: ${driverName}`,
+      url: '/tuteteno',
+      tag: `report-${order.id}`,
+      requireInteraction: true,
+    }).catch(() => 0);
+
+    res.status(201).json({
+      ok: true,
+      report: inserted[0],
+      message: 'Tu reporte ha sido recibido. Hemos tomado medidas inmediatas para proteger a nuestra comunidad.',
+    });
   } catch (error) {
     next(error);
   }

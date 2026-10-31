@@ -26,6 +26,15 @@ export const isAdmin = (user) =>
 export const bannedNow = (user) =>
   Boolean(user) && (user.banned_permanent || (user.banned_until && new Date(user.banned_until) > new Date()));
 
+export const isDriverSuspended = (user) => {
+  if (!user) return false;
+  if (user.banned_permanent) return true;
+  if (user.banned_until && new Date(user.banned_until) > new Date()) return true;
+  if (user.suspended_until && new Date(user.suspended_until) > new Date()) return true;
+  if (user.risk_level === 'red') return true;
+  return false;
+};
+
 export const publicUser = (user) => ({
   id: user.id,
   name: user.name,
@@ -35,6 +44,12 @@ export const publicUser = (user) => ({
   banned: bannedNow(user),
   bannedUntil: user.banned_until,
   bannedPermanent: user.banned_permanent,
+  riskLevel: user.risk_level || 'green',
+  cancellationCount: user.cancellation_count || 0,
+  suspendedUntil: user.suspended_until,
+  consecutiveCompletedTrips: user.consecutive_completed_trips || 0,
+  reportsCount: user.reports_count || 0,
+  isSuspended: isDriverSuspended(user),
 });
 
 export const findUserByEmail = async (email) => {
