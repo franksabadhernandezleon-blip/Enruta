@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   BellRing,
   Bike,
+  Car,
   Check,
   CloudOff,
   MapPin,
@@ -11,6 +12,7 @@ import {
   Phone,
   RefreshCw,
   Route,
+  ShieldCheck,
   Siren,
   Wallet,
 } from 'lucide-react';
@@ -19,7 +21,7 @@ import { Alert, Field, Section, Spinner, Tabs, Toggle } from '../components/ui.j
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { useConfig } from '../lib/config.jsx';
-import { formatDate, formatKm, formatUsd } from '../lib/format.js';
+import { formatDate, formatKm, formatUsd, getOrderStatusLabel } from '../lib/format.js';
 import { mapsLink, whatsappLink } from '../lib/geo.js';
 import { listQueue, refreshPinCache, syncQueuedReleases, validatePinOffline } from '../lib/offline.js';
 import { enablePush, pushSupported } from '../lib/push.js';
@@ -144,9 +146,10 @@ export default function CourierPage() {
   const startRoute = async (order) => {
     setError('');
     try {
-      const items = CHECKLIST.map((point) => Boolean(checklist[order.id]?.[point.key]));
+      const isTransport = order.orderType === 'mototaxi' || order.orderType === 'taxi';
+      const items = isTransport ? [true, true, true] : CHECKLIST.map((point) => Boolean(checklist[order.id]?.[point.key]));
       await api.courier.checklist(order.id, items);
-      setMessage(`Checklist completo en ${order.code}. ¡Buen viaje!`);
+      setMessage(isTransport ? `¡Viaje ${order.code} iniciado! Conduce con precaución.` : `Checklist completo en ${order.code}. ¡Buen viaje!`);
       await load();
     } catch (requestError) {
       setError(requestError.message);
@@ -350,39 +353,66 @@ export default function CourierPage() {
                         <div
                           style={{
                             marginTop: '0.75rem',
-                            padding: '0.75rem',
-                            background: '#f8f9fa',
-                            borderRadius: '0.5rem',
-                            fontSize: '0.9rem',
+                            padding: '0.85rem',
+                            background: '#f8fafc',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '0.65rem',
                             display: 'flex',
                             flexDirection: 'column',
-                            gap: '0.3rem',
+                            gap: '0.65rem',
                           }}
                         >
-                          <div>
-                            <strong>📍 Pasajero / Origen:</strong> {order.customerName || 'Cliente'}
-                            {order.customerPhone && (
-                              <span className="muted small" style={{ marginLeft: '0.5rem' }}>
-                                ({order.customerPhone})
-                              </span>
-                            )}
-                          </div>
-                          <div>
-                            <strong>🎯 Destino & Notas:</strong> {order.reference || order.notes || order.address || 'Ver mapa'}
-                          </div>
-                          {order.originLat && order.destinationLat && (
-                            <div style={{ marginTop: '0.2rem' }}>
-                              <a
-                                href={mapsLink({ lat: order.destinationLat, lng: order.destinationLng })}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="muted small"
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
-                              >
-                                <Navigation size={12} /> Ver destino en mapa
-                              </a>
+                          {/* 🟢 Origen (Punto de recogida del pasajero) */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.35rem' }}>
+                              <strong style={{ color: '#276749', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                <span>🟢</span> Origen (Recogida del pasajero):
+                              </strong>
+                              {order.originLat && order.originLng && (
+                                <a
+                                  href={mapsLink({ lat: order.originLat, lng: order.originLng })}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="btn btn-ghost btn-sm"
+                                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', color: '#2b6cb0', textDecoration: 'none', background: '#ebf8ff' }}
+                                >
+                                  <Navigation size={13} aria-hidden="true" />
+                                  Navegar al origen
+                                </a>
+                              )}
                             </div>
-                          )}
+                            <div style={{ fontSize: '0.9rem', color: '#2d3748', fontWeight: '500' }}>
+                              {order.originAddress || 'Ubicación actual del pasajero (marcada en mapa)'}
+                            </div>
+                            <div className="muted small">
+                              Pasajero: <b>{order.customerName || 'Cliente'}</b>
+                              {order.customerPhone && <span style={{ marginLeft: '0.4rem' }}>({order.customerPhone})</span>}
+                            </div>
+                          </div>
+
+                          {/* 🔴 Destino (Punto de entrega) */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', borderTop: '1px solid #edf2f7', paddingTop: '0.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.35rem' }}>
+                              <strong style={{ color: '#c53030', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                <span>🔴</span> Destino (Punto de entrega):
+                              </strong>
+                              {(order.destinationLat || order.lat) && (
+                                <a
+                                  href={mapsLink({ lat: order.destinationLat || order.lat, lng: order.destinationLng || order.lng })}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="btn btn-ghost btn-sm"
+                                  style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', color: '#4a5568', textDecoration: 'none' }}
+                                >
+                                  <MapPin size={13} aria-hidden="true" />
+                                  Ver destino
+                                </a>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '0.9rem', color: '#2d3748' }}>
+                              {order.reference || order.notes || order.address || 'Destino seleccionado en mapa'}
+                            </div>
+                          </div>
                         </div>
                       ) : (
                         <ol className="route-steps">
@@ -432,112 +462,264 @@ export default function CourierPage() {
 
             {active && (
               <>
-                <Section
-                  title={`Ruta ${active.code}`}
-                  subtitle={`PIN de retiro ${active.pickupPin} · ${formatKm(active.distanceKm)} · ganancia ${formatUsd(active.earningsCents || active.deliveryCents)}`}
-                >
-                  <ol className="route-steps">
-                    {(active.stops || []).map((stop) => (
-                      <li key={stop.id} className={stop.released ? 'is-released' : ''}>
-                        <span className={`route-index${stop.released ? ' is-client' : ''}`}>{stop.seq}</span>
-                        <div>
-                          <strong>{stop.storeName}</strong>
-                          <span className="muted">{stop.storeAddress}</span>
-                          {!stop.released && (
-                            <div className="inline-actions">
-                              <input
-                                value={pins[stop.id] || ''}
-                                onChange={(event) => setPins((prev) => ({ ...prev, [stop.id]: event.target.value }))}
-                                placeholder="PIN que dicta la tienda"
-                                inputMode="numeric"
-                                aria-label={`PIN de retiro en ${stop.storeName}`}
-                              />
-                              <button type="button" className="btn btn-primary btn-sm" onClick={() => releaseStop(active, stop)}>
-                                <Volume2Icon />
-                                Validar y liberar
-                              </button>
+                {/* Diferenciación de vistas: Transporte (Mototaxi/Taxi) vs Delivery de tiendas */}
+                {active.orderType === 'mototaxi' || active.orderType === 'taxi' ? (
+                  <>
+                    <Section
+                      title={`Carrera ${active.code} (${active.vehicleType === 'carro' ? 'Carro 🚗' : 'Moto 🏍️'})`}
+                      subtitle={`Distancia ${formatKm(active.distanceKm)} · Ganancia ${formatUsd(active.earningsCents || active.deliveryCents)} · Estado: ${getOrderStatusLabel(active)}`}
+                    >
+                      <ol className="route-steps">
+                        {/* 🟢 Parada 1: Origen / Punto de recogida */}
+                        <li>
+                          <span className="route-index" style={{ background: '#38a169', color: '#fff' }}>
+                            🟢
+                          </span>
+                          <div>
+                            <strong>Punto de recogida (Buscar pasajero)</strong>
+                            <span className="muted">{active.originAddress || 'Ubicación actual del pasajero'}</span>
+                            <span className="muted small">
+                              Pasajero: <b>{active.customerName || 'Cliente'}</b>
+                            </span>
+                            <div className="inline-actions" style={{ marginTop: '0.4rem' }}>
+                              {active.originLat && active.originLng && (
+                                <a
+                                  className="btn btn-primary btn-sm"
+                                  href={mapsLink({ lat: active.originLat, lng: active.originLng })}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  <Navigation size={14} aria-hidden="true" />
+                                  Navegar al origen
+                                </a>
+                              )}
+                              {active.customerPhone && (
+                                <>
+                                  <a className="btn btn-ghost btn-sm" href={`tel:${active.customerPhone}`}>
+                                    <Phone size={14} aria-hidden="true" />
+                                    Llamar
+                                  </a>
+                                  <a
+                                    className="btn btn-ghost btn-sm"
+                                    href={whatsappLink(active.customerPhone, `Hola ${active.customerName || ''}, soy tu conductor de ENRUTA para la carrera ${active.code}. Voy en camino a buscarte.`)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    <MessageCircle size={14} aria-hidden="true" />
+                                    WhatsApp
+                                  </a>
+                                </>
+                              )}
                             </div>
-                          )}
-                          {stop.released && <span className="status status-delivered">Retirado</span>}
-                        </div>
-                      </li>
-                    ))}
-                    <li>
-                      <span className="route-index is-client">
-                        <Navigation size={13} aria-hidden="true" />
-                      </span>
-                      <div>
-                        <strong>Entrega a {active.customerName || 'cliente'}</strong>
-                        <span className="muted">{active.address || active.reference}</span>
-                        <div className="inline-actions">
-                          {active.customerPhone && (
-                            <>
-                              <a className="btn btn-ghost btn-sm" href={`tel:${active.customerPhone}`}>
-                                <Phone size={14} aria-hidden="true" />
-                                Llamar
-                              </a>
+                          </div>
+                        </li>
+
+                        {/* 🔴 Parada 2: Destino / Punto de entrega */}
+                        <li>
+                          <span className="route-index" style={{ background: '#e53e3e', color: '#fff' }}>
+                            🔴
+                          </span>
+                          <div>
+                            <strong>Destino final del viaje</strong>
+                            <span className="muted">{active.reference || active.address || 'Destino seleccionado'}</span>
+                            <div className="inline-actions" style={{ marginTop: '0.4rem' }}>
                               <a
                                 className="btn btn-ghost btn-sm"
-                                href={whatsappLink(active.customerPhone, `Hola, soy tu motorizado de ENRUTA para el viaje/pedido ${active.code}.`)}
+                                href={mapsLink({ lat: active.destinationLat || active.lat, lng: active.destinationLng || active.lng })}
                                 target="_blank"
                                 rel="noreferrer"
                               >
-                                <MessageCircle size={14} aria-hidden="true" />
-                                Chat
+                                <MapPin size={14} aria-hidden="true" />
+                                Navegar al destino
                               </a>
-                            </>
-                          )}
-                          <a className="btn btn-ghost btn-sm" href={mapsLink({ lat: active.lat, lng: active.lng })} target="_blank" rel="noreferrer">
-                            <MapPin size={14} aria-hidden="true" />
-                            Navegar
-                          </a>
+                            </div>
+                          </div>
+                        </li>
+                      </ol>
+                    </Section>
+
+                    {/* Flujo de control de viaje: Inicio de viaje vs Finalización con PIN */}
+                    {active.status === 'accepted' && (
+                      <Section
+                        title="Inicio de viaje"
+                        subtitle="Confirma que el pasajero esté a bordo antes de partir"
+                      >
+                        <div className="checklist">
+                          <Toggle
+                            checked={Boolean(checklist[active.id]?.passenger)}
+                            onChange={(value) =>
+                              setChecklist((prev) => ({
+                                ...prev,
+                                [active.id]: { ...prev[active.id], passenger: value },
+                              }))
+                            }
+                            label="Pasajero identificado y a bordo"
+                          />
+                          <Toggle
+                            checked={Boolean(checklist[active.id]?.safety)}
+                            onChange={(value) =>
+                              setChecklist((prev) => ({
+                                ...prev,
+                                [active.id]: { ...prev[active.id], safety: value },
+                              }))
+                            }
+                            label={
+                              active.vehicleType === 'carro'
+                                ? 'Cinturón de seguridad colocado'
+                                : 'Casco de seguridad colocado'
+                            }
+                          />
                         </div>
+                        <div className="page-actions">
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-block"
+                            onClick={() => startRoute(active)}
+                          >
+                            <Route size={15} aria-hidden="true" />
+                            Iniciar viaje (Pasajero a bordo)
+                          </button>
+                        </div>
+                      </Section>
+                    )}
+
+                    {active.status === 'on_route' && (
+                      <Section
+                        title="Finalizar viaje"
+                        subtitle="Solicita el código PIN de 4 dígitos al pasajero al llegar al destino"
+                      >
+                        <Field label="Código PIN del pasajero (4 dígitos)">
+                          <input
+                            value={codes[active.id] || ''}
+                            onChange={(event) => setCodes((prev) => ({ ...prev, [active.id]: event.target.value }))}
+                            inputMode="numeric"
+                            placeholder="Ej. 1234"
+                          />
+                        </Field>
+                        <button type="button" className="btn btn-primary btn-block" onClick={() => deliver(active)}>
+                          <Check size={15} aria-hidden="true" />
+                          Finalizar viaje y cobrar
+                        </button>
+                      </Section>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Section
+                      title={`Ruta ${active.code}`}
+                      subtitle={`PIN de retiro ${active.pickupPin} · ${formatKm(active.distanceKm)} · ganancia ${formatUsd(active.earningsCents || active.deliveryCents)}`}
+                    >
+                      <ol className="route-steps">
+                        {(active.stops || []).map((stop) => (
+                          <li key={stop.id} className={stop.released ? 'is-released' : ''}>
+                            <span className={`route-index${stop.released ? ' is-client' : ''}`}>{stop.seq}</span>
+                            <div>
+                              <strong>{stop.storeName}</strong>
+                              <span className="muted">{stop.storeAddress}</span>
+                              {!stop.released && (
+                                <div className="inline-actions">
+                                  <input
+                                    value={pins[stop.id] || ''}
+                                    onChange={(event) => setPins((prev) => ({ ...prev, [stop.id]: event.target.value }))}
+                                    placeholder="PIN que dicta la tienda"
+                                    inputMode="numeric"
+                                    aria-label={`PIN de retiro en ${stop.storeName}`}
+                                  />
+                                  <button type="button" className="btn btn-primary btn-sm" onClick={() => releaseStop(active, stop)}>
+                                    <Volume2Icon />
+                                    Validar y liberar
+                                  </button>
+                                </div>
+                              )}
+                              {stop.released && <span className="status status-delivered">Retirado</span>}
+                            </div>
+                          </li>
+                        ))}
+                        <li>
+                          <span className="route-index is-client">
+                            <Navigation size={13} aria-hidden="true" />
+                          </span>
+                          <div>
+                            <strong>Entrega a {active.customerName || 'cliente'}</strong>
+                            <span className="muted">{active.address || active.reference}</span>
+                            <div className="inline-actions">
+                              {active.customerPhone && (
+                                <>
+                                  <a className="btn btn-ghost btn-sm" href={`tel:${active.customerPhone}`}>
+                                    <Phone size={14} aria-hidden="true" />
+                                    Llamar
+                                  </a>
+                                  <a
+                                    className="btn btn-ghost btn-sm"
+                                    href={whatsappLink(active.customerPhone, `Hola, soy tu motorizado de ENRUTA para el viaje/pedido ${active.code}.`)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    <MessageCircle size={14} aria-hidden="true" />
+                                    Chat
+                                  </a>
+                                </>
+                              )}
+                              <a className="btn btn-ghost btn-sm" href={mapsLink({ lat: active.lat, lng: active.lng })} target="_blank" rel="noreferrer">
+                                <MapPin size={14} aria-hidden="true" />
+                                Navegar
+                              </a>
+                            </div>
+                          </div>
+                        </li>
+                      </ol>
+                    </Section>
+
+                    <Section title="Checklist digital" subtitle="Marca los 3 puntos antes de iniciar la ruta">
+                      <div className="checklist">
+                        {CHECKLIST.map((point) => (
+                          <Toggle
+                            key={point.key}
+                            checked={Boolean(checklist[active.id]?.[point.key])}
+                            onChange={(value) =>
+                              setChecklist((prev) => ({ ...prev, [active.id]: { ...prev[active.id], [point.key]: value } }))
+                            }
+                            label={point.label}
+                          />
+                        ))}
                       </div>
-                    </li>
-                  </ol>
-                </Section>
+                      <div className="page-actions">
+                        <button type="button" className="btn btn-primary" onClick={() => startRoute(active)}>
+                          <Route size={15} aria-hidden="true" />
+                          Iniciar ruta
+                        </button>
+                      </div>
 
-                <Section title="Checklist digital" subtitle="Marca los 3 puntos antes de iniciar la ruta">
-                  <div className="checklist">
-                    {CHECKLIST.map((point) => (
-                      <Toggle
-                        key={point.key}
-                        checked={Boolean(checklist[active.id]?.[point.key])}
-                        onChange={(value) =>
-                          setChecklist((prev) => ({ ...prev, [active.id]: { ...prev[active.id], [point.key]: value } }))
-                        }
-                        label={point.label}
-                      />
-                    ))}
-                  </div>
-                  <div className="page-actions">
-                    <button type="button" className="btn btn-primary" onClick={() => startRoute(active)}>
-                      <Route size={15} aria-hidden="true" />
-                      Iniciar ruta
-                    </button>
-                  </div>
-
-                  <Field label="Código de entrega del cliente (4 dígitos)">
-                    <input
-                      value={codes[active.id] || ''}
-                      onChange={(event) => setCodes((prev) => ({ ...prev, [active.id]: event.target.value }))}
-                      inputMode="numeric"
-                    />
-                  </Field>
-                  <button type="button" className="btn btn-primary btn-block" onClick={() => deliver(active)}>
-                    <Check size={15} aria-hidden="true" />
-                    Cerrar pedido
-                  </button>
-                </Section>
+                      <Field label="Código de entrega del cliente (4 dígitos)">
+                        <input
+                          value={codes[active.id] || ''}
+                          onChange={(event) => setCodes((prev) => ({ ...prev, [active.id]: event.target.value }))}
+                          inputMode="numeric"
+                        />
+                      </Field>
+                      <button type="button" className="btn btn-primary btn-block" onClick={() => deliver(active)}>
+                        <Check size={15} aria-hidden="true" />
+                        Cerrar pedido
+                      </button>
+                    </Section>
+                  </>
+                )}
 
                 <Section
                   title="Mi ubicación en ruta"
                   subtitle="Con ruta activa compartes tu posición en vivo"
                 >
                   <MapPicker
-                    point={{ lat: Number(active.lat), lng: Number(active.lng) }}
-                    markers={(active.stops || []).map((stop) => ({ id: stop.id, name: stop.storeName, lat: stop.lat, lng: stop.lng }))}
-                    label="Entrega"
+                    point={{ lat: Number(active.destinationLat || active.lat), lng: Number(active.destinationLng || active.lng) }}
+                    markers={
+                      active.orderType === 'mototaxi' || active.orderType === 'taxi'
+                        ? [
+                            ...(active.originLat ? [{ id: 'orig', name: '🟢 Recogida Pasajero', lat: Number(active.originLat), lng: Number(active.originLng) }] : []),
+                            ...(active.destinationLat || active.lat ? [{ id: 'dest', name: '🔴 Destino Pasajero', lat: Number(active.destinationLat || active.lat), lng: Number(active.destinationLng || active.lng) }] : []),
+                          ]
+                        : (active.stops || []).map((stop) => ({ id: stop.id, name: stop.storeName, lat: stop.lat, lng: stop.lng }))
+                    }
+                    label="Destino"
                     readOnly
                   />
                 </Section>

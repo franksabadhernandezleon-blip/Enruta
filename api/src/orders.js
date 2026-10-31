@@ -261,8 +261,10 @@ export const createMototaxiOrder = async ({
   vehicle_type = 'moto',
   origin_lat,
   origin_lng,
+  origin_address = '',
   destination_lat,
   destination_lng,
+  destination_address = '',
   reference = '',
   total,
   customer_name,
@@ -304,14 +306,17 @@ export const createMototaxiOrder = async ({
 
   const code = await nextOrderCode();
 
+  const origAddr = String(origin_address || '').slice(0, 240);
+  const destAddr = String(destination_address || reference || `Viaje en ${cleanVehicle === 'carro' ? 'Carro' : 'Moto'}`).slice(0, 240);
+
   const { rows } = await query(
     `INSERT INTO orders (
-      code, order_type, vehicle_type, origin_lat, origin_lng, destination_lat, destination_lng,
+      code, order_type, vehicle_type, origin_lat, origin_lng, origin_address, destination_lat, destination_lng,
       customer_id, customer_name, customer_phone, address, lat, lng, pickup_pin, delivery_code,
       subtotal_cents, delivery_cents, total_cents, bcv_rate, total_bs, distance_km, extra_stops,
       payment_method, notes, courier_commission_cents, platform_commission_cents, reference, status
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, 'ready'
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, 'ready'
     ) RETURNING *`,
     [
       code,
@@ -319,12 +324,13 @@ export const createMototaxiOrder = async ({
       cleanVehicle,
       origLat,
       origLng,
+      origAddr,
       destLat,
       destLng,
       user?.id || null,
       String(customer_name || user?.name || 'Cliente').slice(0, 120),
       String(customer_phone || user?.phone || '').slice(0, 40),
-      String(reference || `Viaje en ${cleanVehicle === 'carro' ? 'Carro' : 'Moto'}`).slice(0, 240),
+      destAddr,
       destLat,
       destLng,
       pin4(),
@@ -384,8 +390,10 @@ export const serializeOrder = (order, { view = 'customer' } = {}) => {
     vehicleType: order.vehicle_type || 'moto',
     originLat: order.origin_lat ? Number(order.origin_lat) : undefined,
     originLng: order.origin_lng ? Number(order.origin_lng) : undefined,
+    originAddress: order.origin_address || (order.order_type === 'mototaxi' ? 'Punto de recogida del pasajero' : undefined),
     destinationLat: order.destination_lat ? Number(order.destination_lat) : undefined,
     destinationLng: order.destination_lng ? Number(order.destination_lng) : undefined,
+    destinationAddress: order.address || order.reference,
     status: order.status,
     sos: order.sos,
     createdAt: order.created_at,
@@ -494,6 +502,24 @@ export const releaseStop = async ({ orderId, stopId, pin, by = 'store' }) => {
 // Se puede aceptar desde que la tienda recibe el pedido (pending/picking): el PIN de
 // retiro se valida después, en la tienda, y no bloquea el Radar.
 export const acceptOrder = async ({ orderId, courier }) => {
+  const order = await loadOrder({ id: orderId });
+  if (!order) throw httpError(404, 'Ese pedido no existe.');
+
+  // Si es un servicio de transporte (mototaxi/taxi), verificar si el conductor supera el límite de deuda
+  if (order.order_type === 'mototaxi' || order.order_type === 'taxi') {
+    const settings = await getSettings();
+    const maxDebt = Number(settings.max_debt_usd || 10.00);
+    const { rows: courierRows } = await query('SELECT wallet_balance FROM users WHERE id = $1', [courier.id]);
+    const balance = Number(courierRows[0]?.wallet_balance || 0);
+    // Un saldo negativo por debajo de -maxDebt indica exceso de deuda acumulada por comisiones
+    if (balance <= -maxDebt) {
+      throw httpError(
+        403,
+        `No puedes aceptar más viajes porque tu deuda por comisiones ($${Math.abs(balance).toFixed(2)} USD) supera el límite permitido ($${maxDebt.toFixed(2)} USD). Por favor cancela tu saldo pendiente para continuar.`,
+      );
+    }
+  }
+
   const { rows } = await query(
     `UPDATE orders SET courier_id = $2, courier_name = $3, courier_phone = $4,
                        status = 'accepted', accepted_at = now(), updated_at = now()
@@ -503,8 +529,6 @@ export const acceptOrder = async ({ orderId, courier }) => {
   );
 
   if (!rows[0]) throw httpError(409, 'Ese pedido ya no está disponible: otro motorizado lo tomó.');
-
-  const order = await loadOrder({ id: orderId });
   await crm('accepted', `Pedido ${order.code} aceptado por ${order.courier_name}`, { orderCode: order.code });
   await notifyStores(order, {
     title: `Motorizado asignado en ${order.code}`,
@@ -626,13 +650,30 @@ export const loadCourierLocation = async (courierId) => {
 export const setChecklist = async ({ orderId, items }) => {
   const order = await loadOrder({ id: orderId });
   if (!order) throw httpError(404, 'Ese pedido no existe.');
-  const clean = (Array.isArray(items) ? items : []).slice(0, 3).map(Boolean);
-  if (clean.length < 3 || clean.some((value) => !value)) {
-    throw httpError(400, 'Debes marcar los 3 puntos del checklist antes de iniciar la ruta.');
+
+  // Diferenciación de lógica delivery vs transporte de personas
+  const isTransport = order.order_type === 'mototaxi' || order.order_type === 'taxi';
+  let checklistData;
+
+  if (isTransport) {
+    // En transporte de personas se registra el inicio de viaje con pasajero a bordo
+    checklistData = {
+      passenger_onboard: true,
+      safety_verified: true,
+      at: new Date().toISOString(),
+    };
+  } else {
+    // En pedidos de comida/tienda se validan los 3 puntos físicos del paquete
+    const clean = (Array.isArray(items) ? items : []).slice(0, 3).map(Boolean);
+    if (clean.length < 3 || clean.some((value) => !value)) {
+      throw httpError(400, 'Debes marcar los 3 puntos del checklist antes de iniciar la ruta.');
+    }
+    checklistData = { empaque: true, productos: true, contenido: true, at: new Date().toISOString() };
   }
+
   const { rows } = await query(
     "UPDATE orders SET checklist = $2::jsonb, status = 'on_route', updated_at = now() WHERE id = $1 RETURNING id",
-    [orderId, JSON.stringify({ empaque: true, productos: true, contenido: true, at: new Date().toISOString() })],
+    [orderId, JSON.stringify(checklistData)],
   );
   if (!rows[0]) throw httpError(404, 'Ese pedido no existe.');
   return loadOrder({ id: orderId });
@@ -653,7 +694,8 @@ export const deliverOrder = async ({ orderId, code, courier }) => {
 
   const courierId = order.courier_id || courier?.id;
 
-  if (order.order_type === 'mototaxi') {
+  // Liquidación y comisiones según tipo de servicio (Transporte vs Delivery de tiendas)
+  if (order.order_type === 'mototaxi' || order.order_type === 'taxi') {
     const platformUsd = (order.platform_commission_cents || 0) / 100;
     if (courierId) {
       await query(

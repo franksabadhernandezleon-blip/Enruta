@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Phone, RefreshCw, XCircle } from 'lucide-react';
 import { Alert, Section, Spinner, StatusPill } from '../../components/ui.jsx';
 import { api } from '../../lib/api.js';
-import { formatBs, formatDate, formatUsd, statusLabel } from '../../lib/format.js';
+import { formatBs, formatDate, formatUsd, getOrderStatusLabel, statusLabel } from '../../lib/format.js';
 import { mapsLink } from '../../lib/geo.js';
 
 export default function AdminOrders({ onChanged }) {
@@ -84,10 +84,13 @@ export default function AdminOrders({ onChanged }) {
                 <div>
                   <strong>{order.code}</strong>
                   <span className="muted">
-                    {formatDate(order.createdAt)} · {order.customerName || 'Cliente'} · {order.stops.length} parada(s)
+                    {formatDate(order.createdAt)} · {order.customerName || 'Cliente'} ·{' '}
+                    {order.orderType === 'mototaxi' || order.orderType === 'taxi'
+                      ? `Viaje en ${order.vehicleType === 'carro' ? 'Carro 🚗' : 'Moto 🏍️'}`
+                      : `${order.stops.length} parada(s)`}
                   </span>
                 </div>
-                <StatusPill status={order.status} label={statusLabel[order.status]} />
+                <StatusPill status={order.status} label={getOrderStatusLabel(order)} />
                 <b className="price">{formatUsd(order.totalCents)}</b>
                 <span className="muted">{formatBs(order.totalBs)} · tasa {Number(order.bcvRate).toFixed(2)}</span>
               </div>
@@ -112,63 +115,97 @@ export default function AdminOrders({ onChanged }) {
 
               {expanded === order.id && (
                 <div className="order-detail">
-                  <div className="order-detail-grid">
-                    <div>
-                      <h3>Paradas</h3>
-                      <ol className="route-steps">
-                        {order.stops.map((stop) => (
-                          <li key={stop.id}>
-                            <span className={`route-index${stop.released ? ' is-client' : ''}`}>{stop.seq}</span>
-                            <div>
-                              <strong>{stop.storeName}</strong>
-                              <span className="muted">
-                                {stop.released ? `Liberada ${formatDate(stop.releasedAt)} (${stop.releasedBy})` : 'Pendiente de PIN'}
-                              </span>
+                  {order.orderType === 'mototaxi' || order.orderType === 'taxi' ? (
+                    <div className="order-detail-grid">
+                      <div>
+                        <h3>Itinerario de Transporte</h3>
+                        <p className="muted">
+                          <b>🟢 Origen:</b> {order.originAddress || 'Origen'} ·{' '}
+                          {order.originLat && (
+                            <a href={mapsLink({ lat: order.originLat, lng: order.originLng })} target="_blank" rel="noreferrer">
+                              mapa origen
+                            </a>
+                          )}
+                        </p>
+                        <p className="muted">
+                          <b>🔴 Destino:</b> {order.reference || order.address || 'Destino'} ·{' '}
+                          <a href={mapsLink({ lat: order.destinationLat || order.lat, lng: order.destinationLng || order.lng })} target="_blank" rel="noreferrer">
+                            mapa destino
+                          </a>
+                        </p>
+                      </div>
+                      <div>
+                        <h3>Detalle Financiero</h3>
+                        <p className="muted">Distancia: {Number(order.distanceKm).toFixed(2)} km</p>
+                        <p className="muted">Código PIN pasajero: <b>{order.deliveryCode}</b></p>
+                        <p className="muted">
+                          Comisión conductor: {formatUsd(order.courierCommissionCents)} · Plataforma (10%):{' '}
+                          {formatUsd(order.platformCommissionCents)}
+                        </p>
+                        {order.paymentMethod && <p className="muted">Pago: {order.paymentMethod}</p>}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="order-detail-grid">
+                        <div>
+                          <h3>Paradas</h3>
+                          <ol className="route-steps">
+                            {order.stops.map((stop) => (
+                              <li key={stop.id}>
+                                <span className={`route-index${stop.released ? ' is-client' : ''}`}>{stop.seq}</span>
+                                <div>
+                                  <strong>{stop.storeName}</strong>
+                                  <span className="muted">
+                                    {stop.released ? `Liberada ${formatDate(stop.releasedAt)} (${stop.releasedBy})` : 'Pendiente de PIN'}
+                                  </span>
+                                </div>
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
+                        <div>
+                          <h3>Entrega</h3>
+                          <p className="muted">
+                            {order.address} ·{' '}
+                            <a href={mapsLink({ lat: order.lat, lng: order.lng })} target="_blank" rel="noreferrer">
+                              mapa
+                            </a>
+                          </p>
+                          <p className="muted">
+                            Distancia {Number(order.distanceKm).toFixed(2)} km · {order.extraStops} parada(s) extra ·
+                            delivery {formatUsd(order.deliveryCents)}
+                          </p>
+                          <p className="muted">
+                            PIN de retiro <b>{order.pickupPin}</b> · código de entrega <b>{order.deliveryCode}</b>
+                          </p>
+                          <p className="muted">
+                            Comisión motorizado {formatUsd(order.courierCommissionCents)} · plataforma{' '}
+                            {formatUsd(order.platformCommissionCents)}
+                          </p>
+                          {order.paymentMethod && (
+                            <p className="muted">
+                              Pago: {order.paymentMethod} {order.paymentRef ? `· ref ${order.paymentRef}` : ''}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <ul className="cart-lines is-compact">
+                        {order.items.map((item) => (
+                          <li key={item.id}>
+                            <div className="cart-line-body">
+                              <strong>
+                                {item.qty}x {item.name}
+                              </strong>
+                              <span className="muted">{item.storeName}</span>
                             </div>
+                            <b className="price">{formatUsd(item.priceCents * item.qty)}</b>
                           </li>
                         ))}
-                      </ol>
-                    </div>
-                    <div>
-                      <h3>Entrega</h3>
-                      <p className="muted">
-                        {order.address} ·{' '}
-                        <a href={mapsLink({ lat: order.lat, lng: order.lng })} target="_blank" rel="noreferrer">
-                          mapa
-                        </a>
-                      </p>
-                      <p className="muted">
-                        Distancia {Number(order.distanceKm).toFixed(2)} km · {order.extraStops} parada(s) extra ·
-                        delivery {formatUsd(order.deliveryCents)}
-                      </p>
-                      <p className="muted">
-                        PIN de retiro <b>{order.pickupPin}</b> · código de entrega <b>{order.deliveryCode}</b>
-                      </p>
-                      <p className="muted">
-                        Comisión motorizado {formatUsd(order.courierCommissionCents)} · plataforma{' '}
-                        {formatUsd(order.platformCommissionCents)}
-                      </p>
-                      {order.paymentMethod && (
-                        <p className="muted">
-                          Pago: {order.paymentMethod} {order.paymentRef ? `· ref ${order.paymentRef}` : ''}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <ul className="cart-lines is-compact">
-                    {order.items.map((item) => (
-                      <li key={item.id}>
-                        <div className="cart-line-body">
-                          <strong>
-                            {item.qty}x {item.name}
-                          </strong>
-                          <span className="muted">{item.storeName}</span>
-                        </div>
-                        <b className="price">{formatUsd(item.priceCents * item.qty)}</b>
-                      </li>
-                    ))}
-                  </ul>
+                      </ul>
+                    </>
+                  )}
                 </div>
               )}
             </li>
