@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Bike, Car, LocateFixed, Route, AlertTriangle, LogIn, X } from 'lucide-react';
-import ClientHeader from '../components/ClientHeader.jsx';
+import { ArrowLeft, Bike, Car, LocateFixed, Route, AlertTriangle, LogIn, X } from 'lucide-react';
 import { Alert, Spinner } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
@@ -300,7 +299,7 @@ export default function MototaxiPage() {
 
   return (
     <div className="client-shell mototaxi-container">
-      <ClientHeader />
+      {/* El encabezado general se oculta en /mototaxi para darle protagonismo limpio al mapa */}
 
       {/* Modal de inicio de sesión requerido para usuarios invitados */}
       {showLoginModal && (
@@ -376,6 +375,32 @@ export default function MototaxiPage() {
           )}
         </MapContainer>
 
+        {/* Botón flotante para regresar a las tiendas */}
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          aria-label="Volver a inicio"
+          style={{
+            position: 'absolute',
+            top: '0.85rem',
+            left: '0.85rem',
+            zIndex: 1000,
+            background: '#ffffff',
+            color: '#16171b',
+            border: 'none',
+            borderRadius: '2rem',
+            width: '2.5rem',
+            height: '2.5rem',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <ArrowLeft size={18} />
+        </button>
+
         <button
           type="button"
           onClick={handleUseCurrentLocation}
@@ -407,7 +432,7 @@ export default function MototaxiPage() {
           <div
             style={{
               position: 'absolute',
-              top: '0.85rem',
+              top: '3.75rem',
               left: '0.85rem',
               zIndex: 1000,
               background: '#ffffff',
