@@ -9,7 +9,7 @@ import { Alert, Spinner } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { useConfig } from '../lib/config.jsx';
 import { formatBs, formatUsd } from '../lib/format.js';
-import { CARIPITO, getRoute, reverseGeocode } from '../lib/geo.js';
+import { CARIPITO, getRoute, haversineKm, reverseGeocode } from '../lib/geo.js';
 
 // Configuración de iconos por defecto para Leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -42,6 +42,7 @@ export default function MototaxiPage() {
 
   const [routeData, setRouteData] = useState(null);
   const [routeError, setRouteError] = useState('');
+  const [isEstimated, setIsEstimated] = useState(false);
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [loadingGps, setLoadingGps] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -50,27 +51,65 @@ export default function MototaxiPage() {
   // Tasa de cambio BCV
   const bcvRate = Number(settings.bcvRate || 36.5);
 
-  // Consulta obligatoria a la API OSRM cada vez que cambia el origen o destino
+  // Consulta a la API OSRM cada vez que cambia el origen o destino con debounce de 500ms
   useEffect(() => {
     if (!originCoords || !destCoords) return;
 
     setLoadingRoute(true);
     setRouteError('');
-    setRouteData(null);
 
-    getRoute(originCoords, destCoords)
-      .then((data) => {
-        if (!data || typeof data.distanceKm !== 'number') {
-          throw new Error('No pudimos calcular la ruta por carretera.');
+    let isMounted = true;
+    const timer = setTimeout(async () => {
+      try {
+        const data = await getRoute(originCoords, destCoords);
+        if (!isMounted) return;
+
+        const km = Number(data?.distanceKm ?? (data?.distanceMeters ? data.distanceMeters / 1000 : null));
+        if (!data || typeof km !== 'number' || Number.isNaN(km)) {
+          throw new Error('Respuesta de ruta incompleta');
         }
-        setRouteData(data);
-      })
-      .catch((err) => {
-        setRouteError(err.message || 'Error al calcular la ruta OSRM. Revisa tu conexión a internet.');
-      })
-      .finally(() => {
-        setLoadingRoute(false);
-      });
+
+        setRouteData({
+          ...data,
+          distanceKm: km,
+        });
+        setIsEstimated(false);
+        setRouteError('');
+      } catch (err) {
+        if (!isMounted) return;
+        // OSRM falló o tardó demasiado: usar respaldo Haversine * 1.3
+        const straightKm = haversineKm(originCoords, destCoords);
+        const estimatedKm = Math.round(straightKm * 1.3 * 100) / 100;
+
+        if (estimatedKm > 0) {
+          const estimatedMinutes = Math.max(3, Math.round(estimatedKm * 3));
+          setRouteData({
+            distanceKm: estimatedKm,
+            durationText: `~${estimatedMinutes} min`,
+            polyline: [
+              [originCoords.lat, originCoords.lng],
+              [destCoords.lat, destCoords.lng],
+            ],
+            isFallback: true,
+          });
+          setIsEstimated(true);
+          setRouteError('No pudimos calcular la ruta. Verifica tu conexión o intenta de nuevo (mostrando tarifa estimada).');
+        } else {
+          setRouteData(null);
+          setIsEstimated(false);
+          setRouteError('No pudimos calcular la ruta. Verifica tu conexión o intenta de nuevo.');
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingRoute(false);
+        }
+      }
+    }, 500);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
   }, [originCoords.lat, originCoords.lng, destCoords.lat, destCoords.lng]);
 
   // Obtener nombre de la dirección del destino mediante reverse geocoding
@@ -144,8 +183,8 @@ export default function MototaxiPage() {
     e.preventDefault();
     setSubmitError('');
 
-    if (!routeData || routeError || loadingRoute) {
-      setSubmitError('No es posible solicitar el viaje sin una ruta OSRM válida. Revisa tu conexión a internet.');
+    if (!routeData || loadingRoute) {
+      setSubmitError('No es posible solicitar el viaje sin una ruta calculada. Revisa tu conexión a internet.');
       return;
     }
 
@@ -406,7 +445,9 @@ export default function MototaxiPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#555' }}>
                 <Route size={15} /> {routeData ? `${distanceKm.toFixed(1)} km · ${durationText}` : 'Calculando ruta...'}
               </div>
-              <span style={{ fontSize: '0.75rem', color: '#888' }}>Cobro dinámico por calles (OSRM)</span>
+              <span style={{ fontSize: '0.75rem', color: isEstimated ? '#c53030' : '#888' }}>
+                {isEstimated ? 'Estimación aproximada por línea recta (+30%)' : 'Cobro dinámico por calles (OSRM)'}
+              </span>
             </div>
             <div style={{ textAlign: 'right' }}>
               <strong style={{ fontSize: '1.3rem', color: routeData ? '#e53e3e' : '#aaa', display: 'block' }}>
@@ -418,22 +459,22 @@ export default function MototaxiPage() {
 
           <button
             type="submit"
-            disabled={submitting || loadingRoute || Boolean(routeError) || !routeData}
+            disabled={submitting || loadingRoute || !routeData}
             style={{
               width: '100%',
-              background: submitting || loadingRoute || routeError || !routeData ? '#a0aec0' : '#e53e3e',
+              background: submitting || loadingRoute || !routeData ? '#a0aec0' : '#e53e3e',
               color: '#ffffff',
               border: 'none',
               borderRadius: '0.75rem',
               padding: '0.85rem',
               fontSize: '1.05rem',
               fontWeight: '700',
-              cursor: submitting || loadingRoute || routeError || !routeData ? 'not-allowed' : 'pointer',
+              cursor: submitting || loadingRoute || !routeData ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '0.5rem',
-              boxShadow: routeData && !routeError ? '0 4px 12px rgba(229, 62, 62, 0.3)' : 'none',
+              boxShadow: routeData ? '0 4px 12px rgba(229, 62, 62, 0.3)' : 'none',
             }}
           >
             {submitting ? (
