@@ -129,13 +129,14 @@ export default function MototaxiPage() {
     };
   }, [destCoords.lat, destCoords.lng]);
 
-  // Tarifas dinámicas basadas en settings o valores por defecto
+  // Tarifas dinámicas de movilidad obtenidas de settings
   const isCarro = vehicleType === 'carro';
 
-  const motoBase = Number(settings.moto_base_fee_cents ?? settings.motoBaseFeeCents ?? 150) / 100;
-  const motoPerKm = Number(settings.moto_per_km_cents ?? settings.motoPerKmCents ?? 60) / 100;
-  const taxiBase = Number(settings.taxi_base_fee_cents ?? settings.taxiBaseFeeCents ?? 250) / 100;
-  const taxiPerKm = Number(settings.taxi_per_km_cents ?? settings.taxiPerKmCents ?? 100) / 100;
+  // Compatible con publicSettings (camelCase) y admin/direct settings (snake_case)
+  const motoBase = Number(settings.motoBaseFeeCents ?? settings.moto_base_fee_cents ?? 150) / 100;
+  const motoPerKm = Number(settings.motoPerKmCents ?? settings.moto_per_km_cents ?? 60) / 100;
+  const taxiBase = Number(settings.taxiBaseFeeCents ?? settings.taxi_base_fee_cents ?? 250) / 100;
+  const taxiPerKm = Number(settings.taxiPerKmCents ?? settings.taxi_per_km_cents ?? 100) / 100;
 
   const basePrice = isCarro ? taxiBase : motoBase;
   const perKmPrice = isCarro ? taxiPerKm : motoPerKm;
@@ -143,7 +144,7 @@ export default function MototaxiPage() {
   const distanceKm = routeData ? routeData.distanceKm : 0;
   const durationText = routeData?.durationText || '';
 
-  // Cobro dinámico estricto OSRM: Tarifa Base + (Costo por KM * Distancia OSRM)
+  // Total = Tarifa Base + (Costo por KM * Distancia)
   const calculatedTotalUsd = routeData
     ? Math.max(basePrice, Math.round((basePrice + distanceKm * perKmPrice) * 100) / 100)
     : 0;

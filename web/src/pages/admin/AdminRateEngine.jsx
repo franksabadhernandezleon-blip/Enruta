@@ -18,6 +18,10 @@ export default function AdminRateEngine({ settings, onSaved }) {
       bcv_rate: Number(settings.bcv_rate),
       base_fee: centsToUsd(settings.base_fee_cents),
       per_km: centsToUsd(settings.per_km_cents),
+      moto_base_fee: centsToUsd(settings.moto_base_fee_cents ?? 150),
+      moto_per_km: centsToUsd(settings.moto_per_km_cents ?? 60),
+      taxi_base_fee: centsToUsd(settings.taxi_base_fee_cents ?? 250),
+      taxi_per_km: centsToUsd(settings.taxi_per_km_cents ?? 100),
       included_km: Number(settings.included_km),
       extra_stop: centsToUsd(settings.extra_stop_cents),
       dynamic_fee: centsToUsd(settings.dynamic_fee_cents),
@@ -54,6 +58,10 @@ export default function AdminRateEngine({ settings, onSaved }) {
         bcv_rate: Number(form.bcv_rate),
         base_fee_cents: Math.round(Number(form.base_fee) * 100),
         per_km_cents: Math.round(Number(form.per_km) * 100),
+        moto_base_fee_cents: Math.round(Number(form.moto_base_fee) * 100),
+        moto_per_km_cents: Math.round(Number(form.moto_per_km) * 100),
+        taxi_base_fee_cents: Math.round(Number(form.taxi_base_fee) * 100),
+        taxi_per_km_cents: Math.round(Number(form.taxi_per_km) * 100),
         included_km: Number(form.included_km),
         extra_stop_cents: Math.round(Number(form.extra_stop) * 100),
         dynamic_fee_cents: Math.round(Number(form.dynamic_fee) * 100),
@@ -96,6 +104,34 @@ export default function AdminRateEngine({ settings, onSaved }) {
         <Field label="Bolívares por dólar" hint="La tasa se congela en cada pedido al generarlo.">
           <input value={form.bcv_rate} onChange={update('bcv_rate')} inputMode="decimal" />
         </Field>
+      </Section>
+
+      <Section
+        title="Tarifas de Movilidad"
+        subtitle="Tarifa base y costo por km para Mototaxi y Taxi/Carro"
+        actions={
+          <button type="button" className="btn btn-primary btn-sm" onClick={save} disabled={status === 'saving'}>
+            <Save size={15} aria-hidden="true" />
+            {status === 'saving' ? 'Guardando…' : 'Guardar Tarifas'}
+          </button>
+        }
+      >
+        <div className="field-row">
+          <Field label="Tarifa Base (Motorizado 🏍️)" hint="Precio base mínimo para carreras en moto (USD)">
+            <input value={form.moto_base_fee} onChange={update('moto_base_fee')} inputMode="decimal" />
+          </Field>
+          <Field label="Costo por KM (Motorizado 🏍️)" hint="Costo por cada km recorrido en moto (USD)">
+            <input value={form.moto_per_km} onChange={update('moto_per_km')} inputMode="decimal" />
+          </Field>
+        </div>
+        <div className="field-row">
+          <Field label="Tarifa Base (Carro 🚗)" hint="Precio base mínimo para carreras en carro (USD)">
+            <input value={form.taxi_base_fee} onChange={update('taxi_base_fee')} inputMode="decimal" />
+          </Field>
+          <Field label="Costo por KM (Carro 🚗)" hint="Costo por cada km recorrido en carro (USD)">
+            <input value={form.taxi_per_km} onChange={update('taxi_per_km')} inputMode="decimal" />
+          </Field>
+        </div>
       </Section>
 
       <Section title="Motor de delivery" subtitle="Tarifa base, costo por km y paradas extra multi-tienda">
