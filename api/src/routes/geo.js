@@ -143,16 +143,41 @@ router.post('/route', async (req, res, next) => {
     // OSRM espera {lng1},{lat1};{lng2},{lat2}
     const url = `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
 
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw httpError(502, 'No pudimos calcular la ruta en el servicio OSRM.');
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          'User-Agent': USER_AGENT,
+        },
+        signal: AbortSignal.timeout(7000),
+      });
+    } catch (fetchErr) {
+      if (fetchErr.name === 'TimeoutError' || fetchErr.code === 23) {
+        return res.status(504).json({ error: 'El servicio de rutas OSRM tardó demasiado en responder.' });
+      }
+      return res.status(502).json({ error: 'No pudimos conectar con el servicio de rutas OSRM.' });
     }
 
-    const data = await response.json();
+    if (!response.ok) {
+      const status = response.status === 429 ? 429 : 502;
+      const message =
+        response.status === 429
+          ? 'Límite de solicitudes alcanzado en el servicio OSRM. Intenta en unos segundos.'
+          : 'No pudimos calcular la ruta en el servicio OSRM.';
+      return res.status(status).json({ error: message });
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      return res.status(502).json({ error: 'Respuesta inválida del servicio de rutas OSRM.' });
+    }
+
     const route = data?.routes?.[0];
 
     if (!route || !route.geometry?.coordinates) {
-      throw httpError(404, 'No se pudo trazar una ruta entre estos dos puntos.');
+      return res.status(404).json({ error: 'No se pudo trazar una ruta entre estos dos puntos.' });
     }
 
     // OSRM devuelve las coordenadas en formato [lng, lat] → invertimos a [lat, lng] para Leaflet
@@ -160,9 +185,11 @@ router.post('/route', async (req, res, next) => {
 
     const distanceMeters = Number(route.distance) || 0;
     const durationSeconds = Number(route.duration) || 0;
+    const distanceKm = Math.round((distanceMeters / 1000) * 100) / 100;
 
     res.json({
       polyline,
+      distanceKm,
       distanceText: formatDistance(distanceMeters),
       durationText: formatDuration(durationSeconds),
       distanceMeters,

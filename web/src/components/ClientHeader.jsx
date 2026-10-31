@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Bike, ClipboardList, MapPin, ShoppingCart, Store, UserRound } from 'lucide-react';
 import { useAddress } from '../lib/address.js';
@@ -13,9 +14,36 @@ export default function ClientHeader({ onOpenAddress }) {
   const { settings } = useConfig();
   const [address] = useAddress();
   const navigate = useNavigate();
+  const [isHidden, setIsHidden] = useState(false);
+  const lastScrollY = useRef(0);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      const diff = currentScrollY - lastScrollY.current;
+
+      // Al estar muy cerca de la parte superior, mantener siempre visible
+      if (currentScrollY <= 60) {
+        setIsHidden(false);
+      } else if (diff > 8) {
+        // Scrolling hacia abajo
+        setIsHidden(true);
+      } else if (diff < -8) {
+        // Scrolling hacia arriba
+        setIsHidden(false);
+      }
+
+      lastScrollY.current = currentScrollY;
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
 
   return (
-    <header className="client-header">
+    <header className={`client-header${isHidden ? ' is-hidden' : ''}`}>
       <div className="client-header-top">
         <Link to="/" className="brand">
           <span className="brand-logo">

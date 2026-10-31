@@ -334,6 +334,12 @@ textarea {
   z-index: 20;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
+  transition: transform 0.3s ease-in-out;
+  will-change: transform;
+}
+
+.client-shell .client-header.is-hidden {
+  transform: translateY(-100%);
 }
 
 .client-header-top {
