@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Bike, Car, LocateFixed, Route, AlertTriangle } from 'lucide-react';
+import { Bike, Car, LocateFixed, Route, AlertTriangle, LogIn, X } from 'lucide-react';
 import ClientHeader from '../components/ClientHeader.jsx';
 import { Alert, Spinner } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
+import { useAuth } from '../lib/auth.jsx';
 import { useConfig } from '../lib/config.jsx';
 import { formatBs, formatUsd } from '../lib/format.js';
 import { CARIPITO, getRoute, haversineKm, reverseGeocode } from '../lib/geo.js';
@@ -29,17 +30,22 @@ function MapClickHandler({ onMapClick }) {
 }
 
 export default function MototaxiPage() {
+  const { user } = useAuth();
   const { settings } = useConfig();
   const navigate = useNavigate();
 
   // Estados principales de la vista
   const [vehicleType, setVehicleType] = useState('moto'); // 'moto' | 'carro'
-  const [originCoords, setOriginCoords] = useState(CARIPITO);
+  const [originCoords, setOriginCoords] = useState(null); // Obligatorio: debe provenir de GPS
+  const [hasCurrentLocation, setHasCurrentLocation] = useState(false);
+  const [gpsError, setGpsError] = useState('');
   const [destCoords, setDestCoords] = useState({ lat: 10.1485, lng: -63.1062 });
 
   const [originAddress, setOriginAddress] = useState('');
   const [destAddress, setDestAddress] = useState('');
   const [reference, setReference] = useState('');
+
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   const [routeData, setRouteData] = useState(null);
   const [routeError, setRouteError] = useState('');
@@ -51,6 +57,44 @@ export default function MototaxiPage() {
 
   // Tasa de cambio BCV
   const bcvRate = Number(settings.bcvRate || 36.5);
+
+  // Solicitud de ubicación GPS obligatoria del usuario
+  const requestCurrentLocation = useCallback(() => {
+    setGpsError('');
+    setSubmitError('');
+
+    if (!navigator.geolocation) {
+      setGpsError('Tu navegador o dispositivo no soporta geolocalización GPS.');
+      setHasCurrentLocation(false);
+      return;
+    }
+
+    setLoadingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(5));
+        const lng = Number(pos.coords.longitude.toFixed(5));
+        setOriginCoords({ lat, lng });
+        setHasCurrentLocation(true);
+        setGpsError('');
+        setLoadingGps(false);
+      },
+      (err) => {
+        console.warn('[mototaxi] GPS error:', err);
+        setHasCurrentLocation(false);
+        setGpsError(
+          'La ubicación actual está desactivada o denegada. Es obligatoria para fijar tu punto de recogida. Por favor actívala en tu dispositivo y concede permisos para continuar.',
+        );
+        setLoadingGps(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
+  }, []);
+
+  // Solicitar ubicación GPS automáticamente al montar la vista
+  useEffect(() => {
+    requestCurrentLocation();
+  }, [requestCurrentLocation]);
 
   // Consulta a la API OSRM cada vez que cambia el origen o destino con debounce de 500ms
   useEffect(() => {
@@ -111,10 +155,11 @@ export default function MototaxiPage() {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [originCoords.lat, originCoords.lng, destCoords.lat, destCoords.lng]);
+  }, [originCoords?.lat, originCoords?.lng, destCoords.lat, destCoords.lng]);
 
   // Obtener dirección del origen mediante geocodificación inversa
   useEffect(() => {
+    if (!originCoords) return;
     let active = true;
     reverseGeocode(originCoords.lat, originCoords.lng)
       .then((res) => {
@@ -128,7 +173,7 @@ export default function MototaxiPage() {
     return () => {
       active = false;
     };
-  }, [originCoords.lat, originCoords.lng]);
+  }, [originCoords?.lat, originCoords?.lng]);
 
   // Obtener nombre de la dirección del destino mediante reverse geocoding
   useEffect(() => {
@@ -177,30 +222,25 @@ export default function MototaxiPage() {
   };
 
   const handleUseCurrentLocation = () => {
-    setSubmitError('');
-    if (!navigator.geolocation) {
-      setSubmitError('Geolocalización no soportada en este navegador.');
-      return;
-    }
-    setLoadingGps(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = Number(pos.coords.latitude.toFixed(5));
-        const lng = Number(pos.coords.longitude.toFixed(5));
-        setOriginCoords({ lat, lng });
-        setLoadingGps(false);
-      },
-      () => {
-        setSubmitError('No pudimos obtener tu ubicación actual.');
-        setLoadingGps(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
+    requestCurrentLocation();
   };
 
   const handleSubmitOrder = async (e) => {
     e.preventDefault();
     setSubmitError('');
+
+    // Validación 1: El usuario invitado no puede pedir; debe loguearse
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    // Validación 2: El origen debe ser obligatoriamente la ubicación GPS actual
+    if (!hasCurrentLocation || !originCoords) {
+      setSubmitError('Debes activar y conceder permiso a tu ubicación GPS actual para poder solicitar un transporte.');
+      requestCurrentLocation();
+      return;
+    }
 
     if (!routeData || loadingRoute) {
       setSubmitError('No es posible solicitar el viaje sin una ruta calculada. Revisa tu conexión a internet.');
@@ -212,7 +252,7 @@ export default function MototaxiPage() {
     try {
       // Envío de solicitud de servicio de transporte con origen y destino explícitos
       const payload = {
-        order_type: 'mototaxi',
+        order_type: vehicleType === 'carro' ? 'taxi' : 'mototaxi',
         vehicle_type: vehicleType,
         store_id: null,
         origin_lat: originCoords.lat,
@@ -256,13 +296,56 @@ export default function MototaxiPage() {
     [],
   );
 
+  const mapCenter = originCoords ? [originCoords.lat, originCoords.lng] : [CARIPITO.lat, CARIPITO.lng];
+
   return (
     <div className="client-shell mototaxi-container">
       <ClientHeader />
 
-      {/* Mapa interactivo con protagonismo vertical (60-70% de la pantalla) */}
+      {/* Modal de inicio de sesión requerido para usuarios invitados */}
+      {showLoginModal && (
+        <div className="modal-backdrop" style={{ zIndex: 2000 }}>
+          <div className="modal" style={{ maxWidth: '400px', width: '90%' }}>
+            <header className="modal-head">
+              <h2>Iniciar sesión requerido</h2>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setShowLoginModal(false)}
+                aria-label="Cerrar modal"
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1rem 0' }}>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: '#4a5568' }}>
+                Para solicitar un mototaxi o taxi en <b>ENRUTA</b> y asignar un conductor de forma segura, debes tener una cuenta activa.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-block"
+                  onClick={() => navigate('/login?next=/mototaxi')}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+                >
+                  <LogIn size={16} /> Iniciar sesión o Registrarme
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-block"
+                  onClick={() => setShowLoginModal(false)}
+                >
+                  Volver al mapa
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mapa interactivo con altura balanceada */}
       <div className="mototaxi-map-wrapper">
-        <MapContainer center={[originCoords.lat, originCoords.lng]} zoom={14} style={{ width: '100%', height: '100%' }}>
+        <MapContainer center={mapCenter} zoom={14} style={{ width: '100%', height: '100%' }}>
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -270,13 +353,15 @@ export default function MototaxiPage() {
 
           <MapClickHandler onMapClick={handleMapClick} />
 
-          <Marker position={[originCoords.lat, originCoords.lng]}>
-            <Popup>
-              <b>🟢 Tu Origen / Recogida</b>
-              <br />
-              {originAddress || 'Punto de recogida'}
-            </Popup>
-          </Marker>
+          {originCoords && (
+            <Marker position={[originCoords.lat, originCoords.lng]}>
+              <Popup>
+                <b>🟢 Tu Ubicación Actual (Origen)</b>
+                <br />
+                {originAddress || 'Punto de partida'}
+              </Popup>
+            </Marker>
+          )}
 
           <Marker position={[destCoords.lat, destCoords.lng]} draggable eventHandlers={destMarkerEventHandlers}>
             <Popup>
@@ -300,9 +385,9 @@ export default function MototaxiPage() {
             top: '0.85rem',
             right: '0.85rem',
             zIndex: 1000,
-            background: '#ffffff',
-            color: '#16171b',
-            border: 'none',
+            background: hasCurrentLocation ? '#ffffff' : '#fff5f5',
+            color: hasCurrentLocation ? '#16171b' : '#c53030',
+            border: hasCurrentLocation ? 'none' : '1.5px solid #feb2b2',
             borderRadius: '2rem',
             padding: '0.5rem 0.85rem',
             boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
@@ -315,7 +400,7 @@ export default function MototaxiPage() {
           }}
         >
           {loadingGps ? <Spinner size={14} /> : <LocateFixed size={16} color="#e53e3e" />}
-          Mi ubicación
+          {hasCurrentLocation ? 'GPS Activo' : 'Activar GPS'}
         </button>
 
         {loadingRoute && (
@@ -340,9 +425,41 @@ export default function MototaxiPage() {
         )}
       </div>
 
-      {/* Panel inferior compacto y optimizado para no comprimir el mapa */}
+      {/* Panel inferior confortable para los controles de viaje */}
       <div className="mototaxi-bottom-sheet">
         <Alert>{submitError}</Alert>
+
+        {/* Alerta si el GPS está desactivado */}
+        {gpsError && (
+          <div
+            style={{
+              background: '#fff5f5',
+              border: '1px solid #feb2b2',
+              color: '#c53030',
+              padding: '0.65rem 0.75rem',
+              borderRadius: '0.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.4rem',
+              fontSize: '0.85rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 'bold' }}>
+              <AlertTriangle size={16} />
+              <span>Ubicación GPS actual obligatoria</span>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.8rem' }}>{gpsError}</p>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={requestCurrentLocation}
+              disabled={loadingGps}
+              style={{ alignSelf: 'flex-start', background: '#ffffff', color: '#c53030', border: '1px solid #feb2b2' }}
+            >
+              {loadingGps ? <Spinner size={12} /> : <LocateFixed size={14} />} Activar / Reintentar GPS
+            </button>
+          </div>
+        )}
 
         {routeError && (
           <div
@@ -387,11 +504,36 @@ export default function MototaxiPage() {
         {/* Formulario estilizado de viaje */}
         <form onSubmit={handleSubmitOrder} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: '#4a5568', marginBottom: '0.2rem' }}>
-              <span style={{ color: '#38a169', fontWeight: 'bold' }}>🟢 Origen:</span>
-              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {originAddress || 'Ubicación actual'}
-              </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', color: '#4a5568', marginBottom: '0.2rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ color: '#38a169', fontWeight: 'bold' }}>🟢 Origen (Ubicación actual):</span>
+              </div>
+              {!hasCurrentLocation && (
+                <button
+                  type="button"
+                  onClick={requestCurrentLocation}
+                  disabled={loadingGps}
+                  style={{ background: 'transparent', border: 'none', color: '#c53030', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  Activar GPS
+                </button>
+              )}
+            </div>
+            <div
+              style={{
+                padding: '0.45rem 0.65rem',
+                borderRadius: '0.5rem',
+                border: hasCurrentLocation ? '1px solid #cbd5e0' : '1px solid #feb2b2',
+                background: hasCurrentLocation ? '#f8fafc' : '#fff5f5',
+                fontSize: '0.85rem',
+                color: hasCurrentLocation ? '#2d3748' : '#c53030',
+              }}
+            >
+              {loadingGps
+                ? 'Obteniendo señal GPS...'
+                : hasCurrentLocation
+                ? originAddress || 'Ubicación actual obtenida por GPS'
+                : 'Ubicación desactivada — Activa tu GPS para continuar'}
             </div>
           </div>
 
@@ -453,28 +595,45 @@ export default function MototaxiPage() {
           </div>
 
           <button
-            type="submit"
-            disabled={submitting || loadingRoute || !routeData}
+            type={user ? 'submit' : 'button'}
+            onClick={!user ? () => setShowLoginModal(true) : undefined}
+            disabled={user && (submitting || loadingRoute || !hasCurrentLocation || !routeData)}
             style={{
               width: '100%',
-              background: submitting || loadingRoute || !routeData ? '#a0aec0' : '#e53e3e',
+              background:
+                user && (submitting || loadingRoute || !hasCurrentLocation || !routeData)
+                  ? '#a0aec0'
+                  : '#e53e3e',
               color: '#ffffff',
               border: 'none',
               borderRadius: '0.65rem',
               padding: '0.75rem',
               fontSize: '1rem',
               fontWeight: '700',
-              cursor: submitting || loadingRoute || !routeData ? 'not-allowed' : 'pointer',
+              cursor:
+                user && (submitting || loadingRoute || !hasCurrentLocation || !routeData)
+                  ? 'not-allowed'
+                  : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '0.5rem',
-              boxShadow: routeData ? '0 4px 12px rgba(229, 62, 62, 0.25)' : 'none',
+              boxShadow: !user || (routeData && hasCurrentLocation) ? '0 4px 12px rgba(229, 62, 62, 0.25)' : 'none',
             }}
           >
             {submitting ? (
               <>
                 <Spinner size={16} /> Solicitando viaje...
+              </>
+            ) : !user ? (
+              <>
+                <LogIn size={18} />
+                Iniciar sesión para pedir {isCarro ? 'Carro' : 'Mototaxi'}
+              </>
+            ) : !hasCurrentLocation ? (
+              <>
+                <LocateFixed size={18} />
+                Activa tu GPS para pedir transporte
               </>
             ) : loadingRoute ? (
               <>

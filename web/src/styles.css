@@ -1871,19 +1871,19 @@ textarea {
   background: var(--bg-soft, #f7fafc);
 }
 
-/* El mapa interactivo toma la mayor altura vertical de la pantalla (60-70%) */
+/* El mapa interactivo con altura balanceada (reducido ~10% para dar más comodidad al panel) */
 .mototaxi-map-wrapper {
   position: relative;
-  flex: 1 1 65%;
-  min-height: 55vh;
+  flex: 1 1 55%;
+  min-height: 45vh;
   width: 100%;
 }
 
-/* Panel inferior flotante estilizado y compacto que no ahoga el mapa */
+/* Panel inferior flotante estilizado y confortable para los controles de viaje */
 .mototaxi-bottom-sheet {
   flex: 0 0 auto;
-  max-height: 38vh;
-  max-height: 38dvh;
+  max-height: 48vh;
+  max-height: 48dvh;
   background: #ffffff;
   border-top-left-radius: 1.25rem;
   border-top-right-radius: 1.25rem;
