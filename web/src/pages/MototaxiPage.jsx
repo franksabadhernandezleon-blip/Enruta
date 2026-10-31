@@ -37,6 +37,7 @@ export default function MototaxiPage() {
   const [originCoords, setOriginCoords] = useState(CARIPITO);
   const [destCoords, setDestCoords] = useState({ lat: 10.1485, lng: -63.1062 });
 
+  const [originAddress, setOriginAddress] = useState('');
   const [destAddress, setDestAddress] = useState('');
   const [reference, setReference] = useState('');
 
@@ -111,6 +112,23 @@ export default function MototaxiPage() {
       clearTimeout(timer);
     };
   }, [originCoords.lat, originCoords.lng, destCoords.lat, destCoords.lng]);
+
+  // Obtener dirección del origen mediante geocodificación inversa
+  useEffect(() => {
+    let active = true;
+    reverseGeocode(originCoords.lat, originCoords.lng)
+      .then((res) => {
+        if (!active) return;
+        if (res?.formattedAddress) {
+          setOriginAddress(res.formattedAddress);
+        }
+      })
+      .catch(() => null);
+
+    return () => {
+      active = false;
+    };
+  }, [originCoords.lat, originCoords.lng]);
 
   // Obtener nombre de la dirección del destino mediante reverse geocoding
   useEffect(() => {
@@ -192,14 +210,17 @@ export default function MototaxiPage() {
     setSubmitting(true);
 
     try {
+      // Envío de solicitud de servicio de transporte con origen y destino explícitos
       const payload = {
         order_type: 'mototaxi',
         vehicle_type: vehicleType,
         store_id: null,
         origin_lat: originCoords.lat,
         origin_lng: originCoords.lng,
+        origin_address: originAddress || 'Ubicación actual del pasajero',
         destination_lat: destCoords.lat,
         destination_lng: destCoords.lng,
+        destination_address: destAddress || 'Destino seleccionado',
         reference: `${destAddress || 'Destino en mapa'}${reference.trim() ? `. Ref: ${reference.trim()}` : ''}`,
         total: calculatedTotalUsd,
         paymentMethod: 'efectivo',
@@ -236,10 +257,11 @@ export default function MototaxiPage() {
   );
 
   return (
-    <div className="client-shell" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+    <div className="client-shell mototaxi-container">
       <ClientHeader />
 
-      <div style={{ position: 'relative', flex: 1, width: '100%' }}>
+      {/* Mapa interactivo con protagonismo vertical (60-70% de la pantalla) */}
+      <div className="mototaxi-map-wrapper">
         <MapContainer center={[originCoords.lat, originCoords.lng]} zoom={14} style={{ width: '100%', height: '100%' }}>
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -250,20 +272,22 @@ export default function MototaxiPage() {
 
           <Marker position={[originCoords.lat, originCoords.lng]}>
             <Popup>
-              <b>Tu Origen / Salida</b>
+              <b>🟢 Tu Origen / Recogida</b>
+              <br />
+              {originAddress || 'Punto de recogida'}
             </Popup>
           </Marker>
 
           <Marker position={[destCoords.lat, destCoords.lng]} draggable eventHandlers={destMarkerEventHandlers}>
             <Popup>
-              <b>Destino Seleccionado</b>
+              <b>🔴 Destino Seleccionado</b>
               <br />
               {destAddress || `${destCoords.lat}, ${destCoords.lng}`}
             </Popup>
           </Marker>
 
           {routeData?.polyline && routeData.polyline.length > 0 && (
-            <Polyline positions={routeData.polyline} color="#e53e3e" weight={5} opacity={0.8} />
+            <Polyline positions={routeData.polyline} color="#e53e3e" weight={5} opacity={0.85} />
           )}
         </MapContainer>
 
@@ -273,60 +297,51 @@ export default function MototaxiPage() {
           disabled={loadingGps}
           style={{
             position: 'absolute',
-            top: '1rem',
-            right: '1rem',
+            top: '0.85rem',
+            right: '0.85rem',
             zIndex: 1000,
             background: '#ffffff',
             color: '#16171b',
             border: 'none',
             borderRadius: '2rem',
-            padding: '0.6rem 1rem',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            padding: '0.5rem 0.85rem',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
             display: 'flex',
             alignItems: 'center',
-            gap: '0.5rem',
+            gap: '0.4rem',
             fontWeight: '600',
+            fontSize: '0.85rem',
             cursor: 'pointer',
           }}
         >
-          {loadingGps ? <Spinner size={16} /> : <LocateFixed size={18} color="#e53e3e" />}
-          Usar mi ubicación actual
+          {loadingGps ? <Spinner size={14} /> : <LocateFixed size={16} color="#e53e3e" />}
+          Mi ubicación
         </button>
 
         {loadingRoute && (
           <div
             style={{
               position: 'absolute',
-              top: '1rem',
-              left: '1rem',
+              top: '0.85rem',
+              left: '0.85rem',
               zIndex: 1000,
               background: '#ffffff',
-              padding: '0.5rem 0.8rem',
+              padding: '0.4rem 0.75rem',
               borderRadius: '1rem',
               boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-              fontSize: '0.85rem',
+              fontSize: '0.8rem',
               display: 'flex',
               alignItems: 'center',
               gap: '0.4rem',
             }}
           >
-            <Spinner size={14} /> Calculando distancia OSRM por calles...
+            <Spinner size={13} /> Calculando ruta...
           </div>
         )}
       </div>
 
-      <div
-        style={{
-          background: '#ffffff',
-          borderTopLeftRadius: '1.25rem',
-          borderTopRightRadius: '1.25rem',
-          boxShadow: '0 -4px 20px rgba(0,0,0,0.12)',
-          padding: '1.25rem',
-          zIndex: 1001,
-          maxHeight: '48vh',
-          overflowY: 'auto',
-        }}
-      >
+      {/* Panel inferior compacto y optimizado para no comprimir el mapa */}
+      <div className="mototaxi-bottom-sheet">
         <Alert>{submitError}</Alert>
 
         {routeError && (
@@ -335,69 +350,56 @@ export default function MototaxiPage() {
               background: '#fff5f5',
               border: '1px solid #feb2b2',
               color: '#c53030',
-              padding: '0.75rem',
+              padding: '0.5rem 0.75rem',
               borderRadius: '0.5rem',
-              marginBottom: '0.75rem',
               display: 'flex',
               alignItems: 'center',
-              gap: '0.5rem',
-              fontSize: '0.85rem',
+              gap: '0.4rem',
+              fontSize: '0.8rem',
             }}
           >
-            <AlertTriangle size={18} />
+            <AlertTriangle size={16} />
             <span>{routeError}</span>
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+        {/* Selector de vehículo en fila compacta */}
+        <div className="mototaxi-type-selector">
           <button
             type="button"
+            className={`mototaxi-type-btn ${vehicleType === 'moto' ? 'is-active' : ''}`}
             onClick={() => setVehicleType('moto')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.5rem',
-              padding: '0.65rem',
-              borderRadius: '0.75rem',
-              border: vehicleType === 'moto' ? '2px solid #e53e3e' : '1px solid #ccc',
-              background: vehicleType === 'moto' ? '#fff5f5' : '#ffffff',
-              color: vehicleType === 'moto' ? '#e53e3e' : '#555',
-              fontWeight: '700',
-              cursor: 'pointer',
-            }}
           >
             <Bike size={18} />
-            Motorizado 🏍️
+            Moto 🏍️
           </button>
 
           <button
             type="button"
+            className={`mototaxi-type-btn ${vehicleType === 'carro' ? 'is-active' : ''}`}
             onClick={() => setVehicleType('carro')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.5rem',
-              padding: '0.65rem',
-              borderRadius: '0.75rem',
-              border: vehicleType === 'carro' ? '2px solid #e53e3e' : '1px solid #ccc',
-              background: vehicleType === 'carro' ? '#fff5f5' : '#ffffff',
-              color: vehicleType === 'carro' ? '#e53e3e' : '#555',
-              fontWeight: '700',
-              cursor: 'pointer',
-            }}
           >
             <Car size={18} />
             Carro 🚗
           </button>
         </div>
 
-        <form onSubmit={handleSubmitOrder} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        {/* Formulario estilizado de viaje */}
+        <form onSubmit={handleSubmitOrder} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: '600', color: '#666', display: 'block', marginBottom: '0.25rem' }}>
-              📍 Toca o arrastra el pin en el mapa para establecer el destino:
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: '#4a5568', marginBottom: '0.2rem' }}>
+              <span style={{ color: '#38a169', fontWeight: 'bold' }}>🟢 Origen:</span>
+              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {originAddress || 'Ubicación actual'}
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', color: '#4a5568', marginBottom: '0.2rem' }}>
+              <span style={{ color: '#e53e3e', fontWeight: 'bold' }}>🔴 Destino:</span>
+              <span style={{ fontSize: '0.75rem', color: '#718096' }}>(Toca o arrastra el pin)</span>
+            </div>
             <input
               type="text"
               value={destAddress}
@@ -407,10 +409,10 @@ export default function MototaxiPage() {
               disabled={submitting}
               style={{
                 width: '100%',
-                padding: '0.6rem',
+                padding: '0.5rem 0.65rem',
                 borderRadius: '0.5rem',
-                border: '1px solid #ccc',
-                fontSize: '0.95rem',
+                border: '1px solid #cbd5e0',
+                fontSize: '0.9rem',
               }}
             />
           </div>
@@ -420,41 +422,33 @@ export default function MototaxiPage() {
               type="text"
               value={reference}
               onChange={(e) => setReference(e.target.value)}
-              placeholder="Ej: Frente a la farmacia, casa azul (opcional)"
+              placeholder="Referencia: casa, color, negocio cercano (opcional)"
               disabled={submitting}
               style={{
                 width: '100%',
-                padding: '0.5rem 0.6rem',
+                padding: '0.45rem 0.65rem',
                 borderRadius: '0.5rem',
-                border: '1px solid #ccc',
-                fontSize: '0.85rem',
+                border: '1px solid #cbd5e0',
+                fontSize: '0.8rem',
               }}
             />
           </div>
 
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: '#f8f9fa',
-              padding: '0.75rem 1rem',
-              borderRadius: '0.75rem',
-            }}
-          >
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#555' }}>
-                <Route size={15} /> {routeData ? `${distanceKm.toFixed(1)} km · ${durationText}` : 'Calculando ruta...'}
+          {/* Resumen de tarifa de movilidad */}
+          <div className="mototaxi-fare-card">
+            <div className="mototaxi-fare-info">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', color: '#4a5568' }}>
+                <Route size={14} /> {routeData ? `${distanceKm.toFixed(1)} km · ${durationText}` : 'Calculando...'}
               </div>
-              <span style={{ fontSize: '0.75rem', color: isEstimated ? '#c53030' : '#888' }}>
-                {isEstimated ? 'Estimación aproximada por línea recta (+30%)' : 'Cobro dinámico por calles (OSRM)'}
+              <span style={{ fontSize: '0.7rem', color: isEstimated ? '#c53030' : '#718096' }}>
+                {isEstimated ? 'Tarifa estimada' : 'Tarifa por trayecto'}
               </span>
             </div>
-            <div style={{ textAlign: 'right' }}>
-              <strong style={{ fontSize: '1.3rem', color: routeData ? '#e53e3e' : '#aaa', display: 'block' }}>
+            <div className="mototaxi-fare-price">
+              <strong style={{ fontSize: '1.15rem', color: routeData ? '#e53e3e' : '#a0aec0', display: 'block', lineHeight: 1.1 }}>
                 {routeData ? formatUsd(Math.round(calculatedTotalUsd * 100)) : '--'}
               </strong>
-              <small style={{ color: '#666' }}>{routeData ? formatBs(calculatedTotalBs) : '--'}</small>
+              <small style={{ color: '#718096', fontSize: '0.75rem' }}>{routeData ? formatBs(calculatedTotalBs) : '--'}</small>
             </div>
           </div>
 
@@ -466,30 +460,30 @@ export default function MototaxiPage() {
               background: submitting || loadingRoute || !routeData ? '#a0aec0' : '#e53e3e',
               color: '#ffffff',
               border: 'none',
-              borderRadius: '0.75rem',
-              padding: '0.85rem',
-              fontSize: '1.05rem',
+              borderRadius: '0.65rem',
+              padding: '0.75rem',
+              fontSize: '1rem',
               fontWeight: '700',
               cursor: submitting || loadingRoute || !routeData ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '0.5rem',
-              boxShadow: routeData ? '0 4px 12px rgba(229, 62, 62, 0.3)' : 'none',
+              boxShadow: routeData ? '0 4px 12px rgba(229, 62, 62, 0.25)' : 'none',
             }}
           >
             {submitting ? (
               <>
-                <Spinner /> Solicitando transporte...
+                <Spinner size={16} /> Solicitando viaje...
               </>
             ) : loadingRoute ? (
               <>
-                <Spinner /> Calculando tarifa...
+                <Spinner size={16} /> Calculando tarifa...
               </>
             ) : (
               <>
-                {isCarro ? <Car size={20} /> : <Bike size={20} />}
-                Solicitar {isCarro ? 'Carro' : 'Motorizado'}{' '}
+                {isCarro ? <Car size={18} /> : <Bike size={18} />}
+                Pedir {isCarro ? 'Carro' : 'Mototaxi'}{' '}
                 {routeData ? `(${formatUsd(Math.round(calculatedTotalUsd * 100))})` : ''}
               </>
             )}

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Bike, MessageCircle, Phone, Receipt, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowLeft, Bike, Car, MessageCircle, Navigation, Phone, Receipt, ShieldCheck, Sparkles } from 'lucide-react';
 import ClientHeader from '../components/ClientHeader.jsx';
 import ProofPhoto from '../components/ProofPhoto.jsx';
 import { Alert, Field, Spinner, StatusPill } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { useConfig } from '../lib/config.jsx';
-import { formatBs, formatDate, formatUsd, statusLabel } from '../lib/format.js';
+import { formatBs, formatDate, formatUsd, getOrderStatusLabel, statusLabel } from '../lib/format.js';
 import { mapsLink, whatsappLink } from '../lib/geo.js';
 import { buildOrderMessage } from '../lib/whatsapp.js';
 
@@ -109,6 +109,13 @@ export default function OrderPage() {
     return groups;
   }, [order]);
 
+  // Diferenciación de lógica delivery vs transporte de personas
+  const isTransport =
+    order?.orderType === 'mototaxi' ||
+    order?.order_type === 'mototaxi' ||
+    order?.orderType === 'taxi' ||
+    order?.order_type === 'taxi';
+
   if (!code) {
     return (
       <div className="client-shell">
@@ -136,7 +143,7 @@ export default function OrderPage() {
                     <strong>{item.code}</strong>
                     <span className="muted">{formatDate(item.createdAt)}</span>
                   </div>
-                  <StatusPill status={item.status} label={statusLabel[item.status]} />
+                  <StatusPill status={item.status} label={getOrderStatusLabel(item)} />
                   <b className="price">{formatUsd(item.totalCents)}</b>
                 </Link>
               </li>
@@ -171,56 +178,142 @@ export default function OrderPage() {
             <section className="panel">
               <header className="panel-head">
                 <div>
-                  <p className="eyebrow">Pedido</p>
+                  <p className="eyebrow">
+                    {isTransport
+                      ? order.vehicleType === 'carro'
+                        ? 'Servicio de Carro / Taxi 🚗'
+                        : 'Servicio de Mototaxi 🏍️'
+                      : 'Pedido de Tienda'}
+                  </p>
                   <h1>{order.code}</h1>
                   <p className="muted">{formatDate(order.createdAt)}</p>
                 </div>
-                <StatusPill status={order.status} label={statusLabel[order.status]} />
+                <StatusPill status={order.status} label={getOrderStatusLabel(order)} />
               </header>
 
-              <ol className="timeline">
-                {['pending', 'picking', 'ready', 'accepted', 'on_route', 'delivered'].map((step) => {
-                  const order_steps = ['pending', 'picking', 'ready', 'accepted', 'on_route', 'delivered'];
-                  const currentIndex = order_steps.indexOf(order.status);
-                  const index = order_steps.indexOf(step);
-                  return (
-                    <li key={step} className={index <= currentIndex ? 'is-done' : ''}>
-                      <span className="timeline-dot" aria-hidden="true" />
-                      <span>{statusLabel[step]}</span>
-                    </li>
-                  );
-                })}
-              </ol>
-
-              {grouped.map((group) => (
-                <div key={group.storeName} className="order-group">
-                  <h2>{group.storeName}</h2>
-                  <ul className="cart-lines is-compact">
-                    {group.items.map((item) => (
-                      <li key={item.id}>
-                        <div className="cart-line-body">
-                          <strong>
-                            {item.qty}x {item.name}
-                          </strong>
-                          <span className="muted">
-                            {order.stops.find((stop) => stop.storeName === group.storeName)?.released
-                              ? 'Retirado por el motorizado'
-                              : 'Esperando liberación en tienda'}
-                          </span>
-                        </div>
-                        <b className="price">{formatUsd(item.priceCents * item.qty)}</b>
+              {/* Flujo de estados diferenciado: Transporte vs Delivery de comida */}
+              {isTransport ? (
+                <ol className="timeline">
+                  {[
+                    { key: 'ready', label: 'Buscando conductor' },
+                    { key: 'accepted', label: 'Conductor asignado' },
+                    { key: 'on_route', label: 'Viaje en curso' },
+                    { key: 'delivered', label: 'Viaje finalizado' },
+                  ].map((step, idx) => {
+                    const transportOrder = ['ready', 'accepted', 'on_route', 'delivered'];
+                    // Mapeo del estado actual al índice de transporte
+                    const currentStatus = ['pending', 'picking'].includes(order.status) ? 'ready' : order.status;
+                    const currentIndex = transportOrder.indexOf(currentStatus);
+                    const isDone = currentIndex >= idx;
+                    return (
+                      <li key={step.key} className={isDone ? 'is-done' : ''}>
+                        <span className="timeline-dot" aria-hidden="true" />
+                        <span>{step.label}</span>
                       </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
+                    );
+                  })}
+                </ol>
+              ) : (
+                <ol className="timeline">
+                  {['pending', 'picking', 'ready', 'accepted', 'on_route', 'delivered'].map((step) => {
+                    const order_steps = ['pending', 'picking', 'ready', 'accepted', 'on_route', 'delivered'];
+                    const currentIndex = order_steps.indexOf(order.status);
+                    const index = order_steps.indexOf(step);
+                    return (
+                      <li key={step} className={index <= currentIndex ? 'is-done' : ''}>
+                        <span className="timeline-dot" aria-hidden="true" />
+                        <span>{statusLabel[step]}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
 
-              <p className="muted">
-                Entrega en {order.address} ·{' '}
-                <a href={mapsLink({ lat: order.lat, lng: order.lng })} target="_blank" rel="noreferrer">
-                  ver mapa
-                </a>
-              </p>
+              {/* Vista de contenido: En transporte se muestran origen y destino claros sin tiendas ni productos */}
+              {isTransport ? (
+                <div className="order-group" style={{ marginTop: '1.25rem' }}>
+                  <h2>Itinerario del viaje</h2>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', padding: '0.5rem 0' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
+                      <span style={{ fontSize: '1.1rem' }}>🟢</span>
+                      <div>
+                        <strong>Origen (Punto de recogida):</strong>
+                        <p className="muted" style={{ margin: '0.15rem 0' }}>
+                          {order.originAddress || 'Ubicación actual del pasajero'}
+                        </p>
+                        {order.originLat && (
+                          <a
+                            href={mapsLink({ lat: order.originLat, lng: order.originLng })}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="small"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', color: '#2b6cb0' }}
+                          >
+                            <Navigation size={12} /> Ver origen en mapa
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
+                      <span style={{ fontSize: '1.1rem' }}>🔴</span>
+                      <div>
+                        <strong>Destino (Punto de llegada):</strong>
+                        <p className="muted" style={{ margin: '0.15rem 0' }}>
+                          {order.reference || order.address || 'Destino seleccionado'}
+                        </p>
+                        <a
+                          href={mapsLink({ lat: order.destinationLat || order.lat, lng: order.destinationLng || order.lng })}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="small"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', color: '#2b6cb0' }}
+                        >
+                          <Navigation size={12} /> Ver destino en mapa
+                        </a>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#4a5568' }}>
+                      <span>Vehículo: <b>{order.vehicleType === 'carro' ? 'Carro / Taxi 🚗' : 'Mototaxi 🏍️'}</b></span>
+                      <span style={{ margin: '0 0.5rem' }}>·</span>
+                      <span>Distancia: <b>{Number(order.distanceKm).toFixed(2)} km</b></span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                grouped.map((group) => (
+                  <div key={group.storeName} className="order-group">
+                    <h2>{group.storeName}</h2>
+                    <ul className="cart-lines is-compact">
+                      {group.items.map((item) => (
+                        <li key={item.id}>
+                          <div className="cart-line-body">
+                            <strong>
+                              {item.qty}x {item.name}
+                            </strong>
+                            <span className="muted">
+                              {order.stops.find((stop) => stop.storeName === group.storeName)?.released
+                                ? 'Retirado por el motorizado'
+                                : 'Esperando liberación en tienda'}
+                            </span>
+                          </div>
+                          <b className="price">{formatUsd(item.priceCents * item.qty)}</b>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))
+              )}
+
+              {!isTransport && (
+                <p className="muted">
+                  Entrega en {order.address} ·{' '}
+                  <a href={mapsLink({ lat: order.lat, lng: order.lng })} target="_blank" rel="noreferrer">
+                    ver mapa
+                  </a>
+                </p>
+              )}
             </section>
 
             <section className="panel receipt">
@@ -233,18 +326,33 @@ export default function OrderPage() {
                 </div>
               </header>
 
-              <div className="summary-row">
-                <span>Productos</span>
-                <b>{formatUsd(order.subtotalCents)}</b>
-              </div>
-              <div className="summary-row">
-                <span>Delivery ({Number(order.distanceKm).toFixed(2)} km · {order.extraStops} parada(s) extra)</span>
-                <b>{formatUsd(order.deliveryCents)}</b>
-              </div>
-              <div className="summary-row is-total">
-                <span>Total</span>
-                <b>{formatUsd(order.totalCents)}</b>
-              </div>
+              {isTransport ? (
+                <>
+                  <div className="summary-row">
+                    <span>Carrera de transporte ({Number(order.distanceKm).toFixed(2)} km)</span>
+                    <b>{formatUsd(order.totalCents)}</b>
+                  </div>
+                  <div className="summary-row is-total">
+                    <span>Total a pagar al conductor</span>
+                    <b>{formatUsd(order.totalCents)}</b>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="summary-row">
+                    <span>Productos</span>
+                    <b>{formatUsd(order.subtotalCents)}</b>
+                  </div>
+                  <div className="summary-row">
+                    <span>Delivery ({Number(order.distanceKm).toFixed(2)} km · {order.extraStops} parada(s) extra)</span>
+                    <b>{formatUsd(order.deliveryCents)}</b>
+                  </div>
+                  <div className="summary-row is-total">
+                    <span>Total</span>
+                    <b>{formatUsd(order.totalCents)}</b>
+                  </div>
+                </>
+              )}
               <div className="summary-row">
                 <span>Tasa BCV congelada</span>
                 <b>{Number(order.bcvRate).toFixed(2)} Bs/USD</b>
@@ -264,42 +372,50 @@ export default function OrderPage() {
               )}
 
               <div className="code-block">
-                <span className="muted">Código de entrega (dáselo al motorizado)</span>
+                <span className="muted">
+                  {isTransport ? 'Código PIN del viaje (dáselo al conductor al llegar)' : 'Código de entrega (dáselo al motorizado)'}
+                </span>
                 <strong>{order.deliveryCode}</strong>
                 <small className="muted">
-                  <ShieldCheck size={13} aria-hidden="true" /> El motorizado lo ingresa para cerrar el pedido.
+                  <ShieldCheck size={13} aria-hidden="true" />{' '}
+                  {isTransport
+                    ? 'El conductor ingresa este PIN para finalizar el viaje al llegar al destino.'
+                    : 'El motorizado lo ingresa para cerrar el pedido.'}
                 </small>
               </div>
 
               <div className="page-actions">
-                <a
-                  className="btn btn-ghost"
-                  href={whatsappLink(settings.whatsappNumber, message)}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <MessageCircle size={15} aria-hidden="true" />
-                  Reenviar por WhatsApp
-                </a>
+                {/* Ocultar botón de reenviar por WhatsApp a tienda en servicios de transporte */}
+                {!isTransport && (
+                  <a
+                    className="btn btn-ghost"
+                    href={whatsappLink(settings.whatsappNumber, message)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <MessageCircle size={15} aria-hidden="true" />
+                    Reenviar por WhatsApp
+                  </a>
+                )}
                 {order.courier?.phone && (
                   <a className="btn btn-primary" href={`tel:${order.courier.phone}`}>
                     <Phone size={15} aria-hidden="true" />
-                    Llamar al motorizado
+                    Llamar al conductor
                   </a>
                 )}
               </div>
 
               {order.courier && (
                 <div className="courier-card">
-                  <Bike size={16} aria-hidden="true" />
+                  {order.vehicleType === 'carro' ? <Car size={16} aria-hidden="true" /> : <Bike size={16} aria-hidden="true" />}
                   <div>
                     <strong>{order.courier.name}</strong>
-                    <span className="muted">Tu motorizado asignado</span>
+                    <span className="muted">Tu conductor asignado</span>
                   </div>
                   {order.courier.phone && (
                     <a
                       className="btn btn-ghost btn-sm"
-                      href={whatsappLink(order.courier.phone, `Hola ${order.courier.name}, soy el cliente del pedido ${order.code}.`)}
+                      href={whatsappLink(order.courier.phone, `Hola ${order.courier.name}, soy el pasajero del viaje ${order.code}.`)}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -316,47 +432,50 @@ export default function OrderPage() {
               </p>
             </section>
 
-            <section className="panel">
-              <header className="panel-head">
-                <div>
-                  <h2>
-                    <Receipt size={16} aria-hidden="true" /> Comprobante de pago
-                  </h2>
-                  <p className="muted">
-                    La tienda lo ve junto al número de pedido {order.code} y se borra solo a los 7 días.
-                  </p>
-                </div>
-              </header>
+            {/* Ocultar comprobante de pago en servicios de transporte (se paga en efectivo directo al conductor) */}
+            {!isTransport && (
+              <section className="panel">
+                <header className="panel-head">
+                  <div>
+                    <h2>
+                      <Receipt size={16} aria-hidden="true" /> Comprobante de pago
+                    </h2>
+                    <p className="muted">
+                      La tienda lo ve junto al número de pedido {order.code} y se borra solo a los 7 días.
+                    </p>
+                  </div>
+                </header>
 
-              {proofs.length > 0 && (
-                <div className="proof-gallery">
-                  {proofs.map((proof) => (
-                    <ProofPhoto key={proof.id} proofId={proof.id} />
-                  ))}
-                </div>
-              )}
-              {!proofs.length && <p className="muted">Todavía no enviaste el comprobante de pago.</p>}
+                {proofs.length > 0 && (
+                  <div className="proof-gallery">
+                    {proofs.map((proof) => (
+                      <ProofPhoto key={proof.id} proofId={proof.id} />
+                    ))}
+                  </div>
+                )}
+                {!proofs.length && <p className="muted">Todavía no enviaste el comprobante de pago.</p>}
 
-              {canUploadProof && order.status !== 'cancelled' && (
-                <>
-                  <Field label="Enviar otra foto del comprobante">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      disabled={proofBusy}
-                      onChange={(event) => {
-                        sendProof(event.target.files?.[0] || null);
-                        event.target.value = '';
-                      }}
-                    />
-                  </Field>
-                  <p className="muted small">
-                    Solo fotos, sin mensajes de texto. Cada comprobante se guarda una semana y se elimina solo.
-                  </p>
-                  <Alert>{proofError}</Alert>
-                </>
-              )}
-            </section>
+                {canUploadProof && order.status !== 'cancelled' && (
+                  <>
+                    <Field label="Enviar otra foto del comprobante">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={proofBusy}
+                        onChange={(event) => {
+                          sendProof(event.target.files?.[0] || null);
+                          event.target.value = '';
+                        }}
+                      />
+                    </Field>
+                    <p className="muted small">
+                      Solo fotos, sin mensajes de texto. Cada comprobante se guarda una semana y se elimina solo.
+                    </p>
+                    <Alert>{proofError}</Alert>
+                  </>
+                )}
+              </section>
+            )}
           </div>
         )}
       </main>

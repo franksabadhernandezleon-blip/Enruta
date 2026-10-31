@@ -1859,6 +1859,93 @@ textarea {
   padding-bottom: 108px;
 }
 
+/* ------------------ Vista de Solicitud de Movilidad / Mototaxi ------------------ */
+/* Contenedor principal a pantalla completa para maximizar el protagonismo del mapa */
+.mototaxi-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg-soft, #f7fafc);
+}
+
+/* El mapa interactivo toma la mayor altura vertical de la pantalla (60-70%) */
+.mototaxi-map-wrapper {
+  position: relative;
+  flex: 1 1 65%;
+  min-height: 55vh;
+  width: 100%;
+}
+
+/* Panel inferior flotante estilizado y compacto que no ahoga el mapa */
+.mototaxi-bottom-sheet {
+  flex: 0 0 auto;
+  max-height: 38vh;
+  max-height: 38dvh;
+  background: #ffffff;
+  border-top-left-radius: 1.25rem;
+  border-top-right-radius: 1.25rem;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.12);
+  padding: 0.85rem 1rem calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+/* Píldoras compactas para selección de vehículo */
+.mototaxi-type-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.mototaxi-type-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border-radius: 0.65rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+  border: 1.5px solid #e2e8f0;
+  background: #ffffff;
+  color: #4a5568;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mototaxi-type-btn.is-active {
+  border-color: #e53e3e;
+  background: #fff5f5;
+  color: #e53e3e;
+}
+
+/* Caja de ruta y tarifa compacta */
+.mototaxi-fare-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+  border: 1px solid #edf2f7;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.65rem;
+}
+
+.mototaxi-fare-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.mototaxi-fare-price {
+  text-align: right;
+}
+
 /* -------------------------- Favoritos y buscador --------------------------- */
 
 .store-card-wrap {

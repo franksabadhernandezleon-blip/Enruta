@@ -88,6 +88,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_plate text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_model text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_available boolean DEFAULT true;
 
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS origin_address text;
+
 CREATE TABLE IF NOT EXISTS products (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   store_id              uuid NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
@@ -117,6 +119,7 @@ CREATE TABLE IF NOT EXISTS orders (
   store_id                  uuid REFERENCES stores(id) ON DELETE SET NULL,
   origin_lat                double precision,
   origin_lng                double precision,
+  origin_address            text,
   destination_lat           double precision,
   destination_lng           double precision,
   customer_id               uuid REFERENCES users(id) ON DELETE SET NULL,

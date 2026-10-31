@@ -23,6 +23,7 @@ const NUMERIC_FIELDS = [
   'platform_commission_pct',
   'max_weight_kg',
   'max_negative_balance',
+  'max_debt_usd',
 ];
 
 const BOOLEAN_FIELDS = [
