@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Bike, ClipboardList, MapPin, ShoppingCart, Store, UserRound } from 'lucide-react';
 import { useAddress } from '../lib/address.js';
 import { useAuth } from '../lib/auth.jsx';
@@ -13,9 +13,15 @@ export default function ClientHeader({ onOpenAddress }) {
   const { count } = useCart();
   const { settings } = useConfig();
   const [address] = useAddress();
+  const location = useLocation();
   const navigate = useNavigate();
   const [isHidden, setIsHidden] = useState(false);
   const lastScrollY = useRef(0);
+
+  // Ocultar encabezado en /mototaxi para darle protagonismo total al mapa interactivo
+  if (location.pathname === '/mototaxi' || location.pathname.startsWith('/mototaxi/')) {
+    return null;
+  }
 
   useEffect(() => {
     const handleScroll = () => {
